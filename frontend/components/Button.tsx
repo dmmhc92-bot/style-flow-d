@@ -100,25 +100,30 @@ export default function Button({
 
 const styles = StyleSheet.create({
   button: {
-    borderRadius: 12,
+    borderRadius: Spacing.radiusMedium,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
+    shadowColor: Colors.shadowDark,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 5,
   },
   button_small: {
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    minHeight: 36,
+    paddingVertical: Spacing.sm + 2,
+    paddingHorizontal: Spacing.md + 4,
+    minHeight: 40,
   },
   button_medium: {
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    minHeight: Spacing.minTouchTarget,
+    paddingVertical: Spacing.md + 2,
+    paddingHorizontal: Spacing.lg + 4,
+    minHeight: Spacing.minTouchTarget + 4,
   },
   button_large: {
-    paddingVertical: Spacing.md + 2,
-    paddingHorizontal: Spacing.xl,
-    minHeight: 52,
+    paddingVertical: Spacing.md + 6,
+    paddingHorizontal: Spacing.xl + 8,
+    minHeight: 56,
   },
   buttonPrimary: {
     backgroundColor: Colors.primary,
@@ -128,11 +133,13 @@ const styles = StyleSheet.create({
   },
   buttonOutline: {
     backgroundColor: 'transparent',
-    borderWidth: 1.5,
+    borderWidth: 2,
     borderColor: Colors.primary,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   buttonDisabled: {
-    opacity: 0.5,
+    opacity: 0.4,
   },
   content: {
     flexDirection: 'row',

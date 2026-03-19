@@ -27,12 +27,14 @@ export function Card({ children, style, onPress }: CardProps) {
 const styles = StyleSheet.create({
   card: {
     backgroundColor: Colors.cardBackground,
-    borderRadius: 16,
+    borderRadius: Spacing.radiusLarge,
     padding: Spacing.cardPadding,
-    shadowColor: Colors.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowColor: Colors.shadowDark,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
   },
 });
