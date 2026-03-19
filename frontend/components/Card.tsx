@@ -1,23 +1,23 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ViewStyle } from 'react-native';
+import { View, StyleSheet } from 'react-native';
 import Colors from '../constants/Colors';
 import Spacing from '../constants/Spacing';
 import Typography from '../constants/Typography';
 
 interface CardProps {
   children: React.ReactNode;
-  style?: ViewStyle;
+  style?: any;
   onPress?: () => void;
 }
 
 export function Card({ children, style, onPress }: CardProps) {
-  const Container = onPress ? TouchableOpacity : View;
+  const Container: any = onPress ? require('react-native').TouchableOpacity : View;
   
   return (
     <Container
       style={[styles.card, style]}
       onPress={onPress}
-      activeOpacity={onPress ? 0.7 : 1}
+      activeOpacity={onPress ? 0.85 : 1}
     >
       {children}
     </Container>
@@ -26,15 +26,15 @@ export function Card({ children, style, onPress }: CardProps) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: Colors.cardBackground,
+    backgroundColor: Colors.backgroundCard,
     borderRadius: Spacing.radiusLarge,
     padding: Spacing.cardPadding,
-    shadowColor: Colors.shadowDark,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 6,
     borderWidth: 1,
-    borderColor: Colors.borderLight,
+    borderColor: Colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
 });

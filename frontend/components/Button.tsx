@@ -5,8 +5,6 @@ import {
   StyleSheet,
   ActivityIndicator,
   View,
-  ViewStyle,
-  TextStyle,
 } from 'react-native';
 import Colors from '../constants/Colors';
 import Spacing from '../constants/Spacing';
@@ -20,8 +18,8 @@ interface ButtonProps {
   loading?: boolean;
   disabled?: boolean;
   icon?: React.ReactNode;
-  style?: ViewStyle;
-  textStyle?: TextStyle;
+  style?: any;
+  textStyle?: any;
 }
 
 export default function Button({
@@ -35,7 +33,7 @@ export default function Button({
   style,
   textStyle,
 }: ButtonProps) {
-  const getButtonStyle = (): ViewStyle[] => {
+  const getButtonStyle = () => {
     const baseStyle = [styles.button, styles[`button_${size}`]];
     
     if (variant === 'primary') {
@@ -57,7 +55,7 @@ export default function Button({
     return baseStyle;
   };
   
-  const getTextStyle = (): TextStyle[] => {
+  const getTextStyle = () => {
     const baseStyle = [styles.text, styles[`text_${size}`]];
     
     if (variant === 'primary') {
@@ -66,8 +64,6 @@ export default function Button({
       baseStyle.push(styles.textSecondary);
     } else if (variant === 'outline') {
       baseStyle.push(styles.textOutline);
-    } else if (variant === 'text') {
-      baseStyle.push(styles.textText);
     }
     
     if (textStyle) {
@@ -82,12 +78,10 @@ export default function Button({
       style={getButtonStyle()}
       onPress={onPress}
       disabled={disabled || loading}
-      activeOpacity={0.7}
+      activeOpacity={0.85}
     >
       {loading ? (
-        <ActivityIndicator
-          color={variant === 'primary' ? Colors.textInverse : Colors.primary}
-        />
+        <ActivityIndicator color={variant === 'outline' ? Colors.accent : Colors.textInverse} />
       ) : (
         <View style={styles.content}>
           {icon && <View style={styles.icon}>{icon}</View>}
@@ -104,39 +98,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    shadowColor: Colors.shadowDark,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 5,
   },
   button_small: {
-    paddingVertical: Spacing.sm + 2,
-    paddingHorizontal: Spacing.md + 4,
-    minHeight: 40,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    minHeight: 36,
   },
   button_medium: {
-    paddingVertical: Spacing.md + 2,
-    paddingHorizontal: Spacing.lg + 4,
-    minHeight: Spacing.minTouchTarget + 4,
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    minHeight: 48,
   },
   button_large: {
-    paddingVertical: Spacing.md + 6,
-    paddingHorizontal: Spacing.xl + 8,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
     minHeight: 56,
   },
   buttonPrimary: {
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.accent,
   },
   buttonSecondary: {
-    backgroundColor: Colors.accent,
+    backgroundColor: Colors.primary,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   buttonOutline: {
     backgroundColor: 'transparent',
-    borderWidth: 2,
-    borderColor: Colors.primary,
-    shadowOpacity: 0,
-    elevation: 0,
+    borderWidth: 1.5,
+    borderColor: Colors.accent,
   },
   buttonDisabled: {
     opacity: 0.4,
@@ -147,11 +136,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   icon: {
-    marginRight: Spacing.sm,
+    marginRight: 8,
   },
   text: {
     fontWeight: Typography.semibold,
     textAlign: 'center',
+    letterSpacing: Typography.letterSpacingWide,
+    textTransform: 'uppercase',
   },
   text_small: {
     fontSize: Typography.bodySmall,
@@ -166,12 +157,9 @@ const styles = StyleSheet.create({
     color: Colors.textInverse,
   },
   textSecondary: {
-    color: Colors.textInverse,
+    color: Colors.text,
   },
   textOutline: {
-    color: Colors.primary,
-  },
-  textText: {
-    color: Colors.primary,
+    color: Colors.accent,
   },
 });
