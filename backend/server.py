@@ -219,7 +219,7 @@ def decode_access_token(token: str) -> str:
         return email
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.JWTError:
+    except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
@@ -770,6 +770,20 @@ async def get_retail(current_user: dict = Depends(get_current_user)):
     
     return result
 
+@api_router.delete("/retail/{retail_id}")
+async def delete_retail(retail_id: str, current_user: dict = Depends(get_current_user)):
+    from bson import ObjectId
+    
+    try:
+        result = await db.retail.delete_one({"_id": ObjectId(retail_id), "user_id": str(current_user["_id"])})
+    except:
+        raise HTTPException(status_code=404, detail="Retail record not found")
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Retail record not found")
+    
+    return {"message": "Retail record deleted successfully"}
+
 # ==================== NO-SHOW ENDPOINTS ====================
 
 @api_router.post("/no-shows", response_model=NoShowResponse)
@@ -815,6 +829,20 @@ async def get_no_shows(current_user: dict = Depends(get_current_user)):
         result.append(NoShowResponse(id=str(ns["_id"]), **{k: v for k, v in ns.items() if k != "_id"}))
     
     return result
+
+@api_router.delete("/no-shows/{no_show_id}")
+async def delete_no_show(no_show_id: str, current_user: dict = Depends(get_current_user)):
+    from bson import ObjectId
+    
+    try:
+        result = await db.no_shows.delete_one({"_id": ObjectId(no_show_id), "user_id": str(current_user["_id"])})
+    except:
+        raise HTTPException(status_code=404, detail="No-show record not found")
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="No-show record not found")
+    
+    return {"message": "No-show record deleted successfully"}
 
 # ==================== AI ASSISTANT ENDPOINTS ====================
 
