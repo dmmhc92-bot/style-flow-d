@@ -3,6 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from bson import ObjectId
 import os
 import logging
 from pathlib import Path
@@ -202,6 +203,47 @@ class AIMessageRequest(BaseModel):
 class AIMessageResponse(BaseModel):
     response: str
 
+# ==================== MODERATION MODELS ====================
+
+class ReportCreate(BaseModel):
+    reported_user_id: str
+    content_type: str  # "profile", "portfolio", "gallery"
+    content_id: Optional[str] = None
+    reason: str  # "harassment", "inappropriate", "spam", "hate_speech", "sexual_content", "illegal", "other"
+    details: Optional[str] = None
+
+class ReportResponse(BaseModel):
+    id: str
+    reporter_id: str
+    reported_user_id: str
+    content_type: str
+    content_id: Optional[str] = None
+    reason: str
+    details: Optional[str] = None
+    status: str  # "pending", "reviewed", "dismissed", "actioned"
+    created_at: datetime
+
+class BlockCreate(BaseModel):
+    blocked_user_id: str
+
+class ModerationAction(BaseModel):
+    action: str  # "dismiss", "warn", "remove_content", "restrict", "suspend", "ban"
+    reason: Optional[str] = None
+    duration_days: Optional[int] = None  # For suspensions
+
+REPORT_REASONS = [
+    "harassment",
+    "inappropriate", 
+    "spam",
+    "hate_speech",
+    "sexual_content",
+    "illegal",
+    "impersonation",
+    "other"
+]
+
+MODERATION_ACTIONS = ["dismiss", "warn", "remove_content", "restrict", "suspend", "ban"]
+
 # ==================== HELPER FUNCTIONS ====================
 
 def hash_password(password: str) -> str:
@@ -384,7 +426,20 @@ async def update_profile(profile_data: dict, current_user: dict = Depends(get_cu
 
 @api_router.get("/users/discover")
 async def discover_users(search: Optional[str] = None, current_user: dict = Depends(get_current_user)):
-    query = {"profile_visibility": "public"}
+    current_user_id = str(current_user["_id"])
+    
+    # Get list of blocked users (both directions)
+    blocked_by_me = await db.blocks.find({"blocker_id": current_user_id}).to_list(1000)
+    blocked_me = await db.blocks.find({"blocked_id": current_user_id}).to_list(1000)
+    
+    blocked_ids = [b["blocked_id"] for b in blocked_by_me] + [b["blocker_id"] for b in blocked_me]
+    blocked_object_ids = [ObjectId(bid) for bid in blocked_ids if bid]
+    
+    query = {
+        "profile_visibility": "public",
+        "moderation_status": {"$nin": ["banned", "suspended"]},  # Exclude banned/suspended users
+        "_id": {"$nin": blocked_object_ids + [current_user["_id"]]}  # Exclude blocked and self
+    }
     
     if search:
         query["$or"] = [
@@ -398,22 +453,32 @@ async def discover_users(search: Optional[str] = None, current_user: dict = Depe
     
     result = []
     for user in users:
-        if str(user["_id"]) != str(current_user["_id"]):  # Exclude current user
-            result.append({
-                "id": str(user["_id"]),
-                "full_name": user.get("full_name"),
-                "business_name": user.get("business_name"),
-                "city": user.get("city"),
-                "specialties": user.get("specialties"),
-                "profile_photo": user.get("profile_photo"),
-                "bio": user.get("bio"),
-            })
+        result.append({
+            "id": str(user["_id"]),
+            "full_name": user.get("full_name"),
+            "business_name": user.get("business_name"),
+            "city": user.get("city"),
+            "specialties": user.get("specialties"),
+            "profile_photo": user.get("profile_photo"),
+            "bio": user.get("bio"),
+        })
     
     return result
 
 @api_router.get("/users/{user_id}/profile")
 async def get_user_profile(user_id: str, current_user: dict = Depends(get_current_user)):
-    from bson import ObjectId
+    current_user_id = str(current_user["_id"])
+    
+    # Check if blocked
+    block = await db.blocks.find_one({
+        "$or": [
+            {"blocker_id": current_user_id, "blocked_id": user_id},
+            {"blocker_id": user_id, "blocked_id": current_user_id}
+        ]
+    })
+    
+    if block:
+        raise HTTPException(status_code=403, detail="Cannot view this profile")
     
     try:
         user = await db.users.find_one({"_id": ObjectId(user_id)})
@@ -421,6 +486,10 @@ async def get_user_profile(user_id: str, current_user: dict = Depends(get_curren
         raise HTTPException(status_code=404, detail="User not found")
     
     if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Check if banned/suspended
+    if user.get("moderation_status") == "banned":
         raise HTTPException(status_code=404, detail="User not found")
     
     if user.get("profile_visibility") == "private" and str(user["_id"]) != str(current_user["_id"]):
@@ -665,8 +734,64 @@ async def get_blocked_users(current_user: dict = Depends(get_current_user)):
 
 # ==================== REPORT SYSTEM ====================
 
+@api_router.post("/report")
+async def create_report(report_data: ReportCreate, current_user: dict = Depends(get_current_user)):
+    current_user_id = str(current_user["_id"])
+    
+    if current_user_id == report_data.reported_user_id:
+        raise HTTPException(status_code=400, detail="Cannot report yourself")
+    
+    if report_data.reason not in REPORT_REASONS:
+        raise HTTPException(status_code=400, detail="Invalid report reason")
+    
+    # Check if user already reported this content
+    existing = await db.reports.find_one({
+        "reporter_id": current_user_id,
+        "reported_user_id": report_data.reported_user_id,
+        "content_type": report_data.content_type,
+        "content_id": report_data.content_id,
+        "status": "pending"
+    })
+    
+    if existing:
+        raise HTTPException(status_code=400, detail="You have already reported this content")
+    
+    report_doc = {
+        "reporter_id": current_user_id,
+        "reported_user_id": report_data.reported_user_id,
+        "content_type": report_data.content_type,
+        "content_id": report_data.content_id,
+        "reason": report_data.reason,
+        "details": report_data.details,
+        "status": "pending",
+        "created_at": datetime.utcnow()
+    }
+    
+    result = await db.reports.insert_one(report_doc)
+    
+    # Update report count on the reported user
+    await db.users.update_one(
+        {"_id": ObjectId(report_data.reported_user_id)},
+        {"$inc": {"report_count": 1}}
+    )
+    
+    # Auto-flag if user has 3+ pending reports
+    report_count = await db.reports.count_documents({
+        "reported_user_id": report_data.reported_user_id,
+        "status": "pending"
+    })
+    
+    if report_count >= 3:
+        await db.users.update_one(
+            {"_id": ObjectId(report_data.reported_user_id)},
+            {"$set": {"flagged": True, "flagged_at": datetime.utcnow()}}
+        )
+    
+    return {"message": "Report submitted successfully", "report_id": str(result.inserted_id)}
+
 @api_router.post("/report/{user_id}")
 async def report_user(user_id: str, report_data: dict, current_user: dict = Depends(get_current_user)):
+    """Legacy endpoint for backwards compatibility"""
     current_user_id = str(current_user["_id"])
     
     if current_user_id == user_id:
@@ -675,8 +800,10 @@ async def report_user(user_id: str, report_data: dict, current_user: dict = Depe
     report_doc = {
         "reporter_id": current_user_id,
         "reported_user_id": user_id,
-        "reason": report_data.get("reason"),
-        "notes": report_data.get("notes"),
+        "content_type": "profile",
+        "content_id": None,
+        "reason": report_data.get("reason", "other"),
+        "details": report_data.get("notes"),
         "status": "pending",
         "created_at": datetime.utcnow()
     }
@@ -684,6 +811,319 @@ async def report_user(user_id: str, report_data: dict, current_user: dict = Depe
     await db.reports.insert_one(report_doc)
     
     return {"message": "Report submitted successfully"}
+
+# ==================== ADMIN MODERATION ENDPOINTS ====================
+
+async def check_admin(current_user: dict):
+    """Check if user is an admin"""
+    if not current_user.get("is_admin", False):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+@api_router.get("/admin/moderation/queue")
+async def get_moderation_queue(
+    status: Optional[str] = "pending",
+    current_user: dict = Depends(get_current_user)
+):
+    await check_admin(current_user)
+    
+    # Get all reports with the specified status
+    query = {}
+    if status:
+        query["status"] = status
+    
+    reports = await db.reports.find(query).sort("created_at", -1).to_list(100)
+    
+    result = []
+    for report in reports:
+        # Get reporter info
+        reporter = await db.users.find_one({"_id": ObjectId(report["reporter_id"])})
+        # Get reported user info
+        reported_user = await db.users.find_one({"_id": ObjectId(report["reported_user_id"])})
+        
+        # Get total report count for this user/content
+        report_count = await db.reports.count_documents({
+            "reported_user_id": report["reported_user_id"],
+            "content_type": report.get("content_type"),
+            "content_id": report.get("content_id"),
+            "status": "pending"
+        })
+        
+        result.append({
+            "id": str(report["_id"]),
+            "reporter": {
+                "id": str(reporter["_id"]) if reporter else None,
+                "name": reporter.get("full_name") if reporter else "Unknown"
+            },
+            "reported_user": {
+                "id": str(reported_user["_id"]) if reported_user else None,
+                "name": reported_user.get("full_name") if reported_user else "Unknown",
+                "email": reported_user.get("email") if reported_user else None,
+                "moderation_status": reported_user.get("moderation_status", "good_standing") if reported_user else None,
+                "warnings_count": reported_user.get("warnings_count", 0) if reported_user else 0
+            },
+            "content_type": report.get("content_type"),
+            "content_id": report.get("content_id"),
+            "reason": report.get("reason"),
+            "details": report.get("details"),
+            "report_count": report_count,
+            "status": report.get("status"),
+            "created_at": report.get("created_at")
+        })
+    
+    return result
+
+@api_router.get("/admin/moderation/flagged")
+async def get_flagged_users(current_user: dict = Depends(get_current_user)):
+    await check_admin(current_user)
+    
+    # Get users who are flagged or have moderation issues
+    flagged_users = await db.users.find({
+        "$or": [
+            {"flagged": True},
+            {"moderation_status": {"$in": ["warned", "restricted", "suspended"]}}
+        ]
+    }).to_list(100)
+    
+    result = []
+    for user in flagged_users:
+        pending_reports = await db.reports.count_documents({
+            "reported_user_id": str(user["_id"]),
+            "status": "pending"
+        })
+        
+        result.append({
+            "id": str(user["_id"]),
+            "full_name": user.get("full_name"),
+            "email": user.get("email"),
+            "moderation_status": user.get("moderation_status", "good_standing"),
+            "warnings_count": user.get("warnings_count", 0),
+            "flagged": user.get("flagged", False),
+            "suspended_until": user.get("suspended_until"),
+            "pending_reports": pending_reports
+        })
+    
+    return result
+
+@api_router.post("/admin/moderation/action/{report_id}")
+async def take_moderation_action(
+    report_id: str,
+    action_data: ModerationAction,
+    current_user: dict = Depends(get_current_user)
+):
+    await check_admin(current_user)
+    
+    if action_data.action not in MODERATION_ACTIONS:
+        raise HTTPException(status_code=400, detail="Invalid moderation action")
+    
+    # Get the report
+    report = await db.reports.find_one({"_id": ObjectId(report_id)})
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    
+    reported_user_id = report["reported_user_id"]
+    
+    # Update report status
+    new_status = "actioned" if action_data.action != "dismiss" else "dismissed"
+    await db.reports.update_one(
+        {"_id": ObjectId(report_id)},
+        {
+            "$set": {
+                "status": new_status,
+                "actioned_by": str(current_user["_id"]),
+                "actioned_at": datetime.utcnow(),
+                "action_taken": action_data.action,
+                "action_reason": action_data.reason
+            }
+        }
+    )
+    
+    # Apply action to user
+    user_update = {}
+    
+    if action_data.action == "dismiss":
+        # Just dismiss the report, no action on user
+        # Clear flagged status if no more pending reports
+        pending_count = await db.reports.count_documents({
+            "reported_user_id": reported_user_id,
+            "status": "pending"
+        })
+        if pending_count == 0:
+            await db.users.update_one(
+                {"_id": ObjectId(reported_user_id)},
+                {"$set": {"flagged": False}}
+            )
+    
+    elif action_data.action == "warn":
+        user_update = {
+            "$inc": {"warnings_count": 1},
+            "$set": {
+                "last_warning_at": datetime.utcnow(),
+                "last_warning_reason": action_data.reason
+            }
+        }
+        # Check if warnings should escalate to restriction
+        user = await db.users.find_one({"_id": ObjectId(reported_user_id)})
+        if user and user.get("warnings_count", 0) >= 2:
+            user_update["$set"]["moderation_status"] = "restricted"
+    
+    elif action_data.action == "remove_content":
+        # Remove the specific content
+        if report.get("content_type") == "portfolio":
+            await db.portfolio.delete_one({"_id": ObjectId(report.get("content_id"))})
+        elif report.get("content_type") == "gallery":
+            await db.gallery.delete_one({"_id": ObjectId(report.get("content_id"))})
+        user_update = {"$inc": {"content_removed_count": 1}}
+    
+    elif action_data.action == "restrict":
+        user_update = {
+            "$set": {
+                "moderation_status": "restricted",
+                "restricted_at": datetime.utcnow(),
+                "restriction_reason": action_data.reason
+            }
+        }
+    
+    elif action_data.action == "suspend":
+        duration_days = action_data.duration_days or 7
+        suspended_until = datetime.utcnow() + timedelta(days=duration_days)
+        user_update = {
+            "$set": {
+                "moderation_status": "suspended",
+                "suspended_at": datetime.utcnow(),
+                "suspended_until": suspended_until,
+                "suspension_reason": action_data.reason
+            }
+        }
+    
+    elif action_data.action == "ban":
+        user_update = {
+            "$set": {
+                "moderation_status": "banned",
+                "banned_at": datetime.utcnow(),
+                "ban_reason": action_data.reason,
+                "flagged": False
+            }
+        }
+    
+    if user_update:
+        await db.users.update_one(
+            {"_id": ObjectId(reported_user_id)},
+            user_update
+        )
+    
+    # Log the moderation action
+    await db.moderation_log.insert_one({
+        "admin_id": str(current_user["_id"]),
+        "report_id": report_id,
+        "target_user_id": reported_user_id,
+        "action": action_data.action,
+        "reason": action_data.reason,
+        "created_at": datetime.utcnow()
+    })
+    
+    return {"message": f"Action '{action_data.action}' applied successfully"}
+
+@api_router.get("/admin/moderation/user/{user_id}")
+async def get_user_moderation_history(
+    user_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    await check_admin(current_user)
+    
+    # Get user info
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get all reports against this user
+    reports = await db.reports.find({"reported_user_id": user_id}).sort("created_at", -1).to_list(50)
+    
+    # Get moderation log
+    mod_log = await db.moderation_log.find({"target_user_id": user_id}).sort("created_at", -1).to_list(50)
+    
+    return {
+        "user": {
+            "id": str(user["_id"]),
+            "full_name": user.get("full_name"),
+            "email": user.get("email"),
+            "moderation_status": user.get("moderation_status", "good_standing"),
+            "warnings_count": user.get("warnings_count", 0),
+            "flagged": user.get("flagged", False),
+            "suspended_until": user.get("suspended_until"),
+            "created_at": user.get("created_at")
+        },
+        "reports": [{
+            "id": str(r["_id"]),
+            "reason": r.get("reason"),
+            "details": r.get("details"),
+            "status": r.get("status"),
+            "created_at": r.get("created_at")
+        } for r in reports],
+        "moderation_actions": [{
+            "action": m.get("action"),
+            "reason": m.get("reason"),
+            "created_at": m.get("created_at")
+        } for m in mod_log]
+    }
+
+@api_router.post("/admin/moderation/lift/{user_id}")
+async def lift_moderation_status(
+    user_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Lift restrictions/suspensions from a user"""
+    await check_admin(current_user)
+    
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user.get("moderation_status") == "banned":
+        raise HTTPException(status_code=400, detail="Cannot lift ban through this endpoint. Use appeal process.")
+    
+    await db.users.update_one(
+        {"_id": ObjectId(user_id)},
+        {
+            "$set": {"moderation_status": "good_standing", "flagged": False},
+            "$unset": {"suspended_until": "", "restricted_at": ""}
+        }
+    )
+    
+    # Log the action
+    await db.moderation_log.insert_one({
+        "admin_id": str(current_user["_id"]),
+        "target_user_id": user_id,
+        "action": "lift_restrictions",
+        "created_at": datetime.utcnow()
+    })
+    
+    return {"message": "Moderation status lifted successfully"}
+
+# ==================== USER MODERATION STATUS CHECK ====================
+
+async def check_user_moderation_status(user: dict):
+    """Check if user can access the app"""
+    status = user.get("moderation_status", "good_standing")
+    
+    if status == "banned":
+        raise HTTPException(
+            status_code=403, 
+            detail="Your account has been permanently suspended for violating community guidelines."
+        )
+    
+    if status == "suspended":
+        suspended_until = user.get("suspended_until")
+        if suspended_until and suspended_until > datetime.utcnow():
+            raise HTTPException(
+                status_code=403,
+                detail=f"Your account is suspended until {suspended_until.strftime('%Y-%m-%d %H:%M UTC')}."
+            )
+        else:
+            # Suspension expired, restore status
+            await db.users.update_one(
+                {"_id": user["_id"]},
+                {"$set": {"moderation_status": "good_standing"}}
+            )
 
 # ==================== PRIVACY SETTINGS ====================
 

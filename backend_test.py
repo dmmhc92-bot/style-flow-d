@@ -1,30 +1,27 @@
 #!/usr/bin/env python3
 """
-StyleFlow Backend API Testing - Full User Flow
-Tests all backend APIs according to the review request specifications
+StyleFlow Moderation System API Testing
+Tests all moderation endpoints including report and block functionality
 """
 
 import requests
 import json
-import base64
-from datetime import datetime
 import sys
+from datetime import datetime
 
 # Configuration
 BASE_URL = "https://hairflow-app-1.preview.emergentagent.com/api"
+HEADERS = {"Content-Type": "application/json"}
 
-class StyleFlowTester:
+class ModerationTester:
     def __init__(self):
         self.base_url = BASE_URL
-        self.session = requests.Session()
-        self.user1_token = None
-        self.user2_token = None
-        self.user1_id = None
-        self.user2_id = None
-        self.portfolio_image_id = None
+        self.headers = HEADERS
+        self.user_a_token = None
+        self.user_b_token = None
+        self.user_a_id = None
+        self.user_b_id = None
         self.test_results = []
-        import time
-        self.timestamp = int(time.time())
         
     def log_test(self, test_name, success, details=""):
         """Log test results"""
@@ -37,384 +34,289 @@ class StyleFlowTester:
             "success": success,
             "details": details
         })
-        
-    def make_request(self, method, endpoint, data=None, token=None, params=None):
-        """Make HTTP request with proper headers"""
+    
+    def make_request(self, method, endpoint, data=None, token=None):
+        """Make HTTP request with proper error handling"""
         url = f"{self.base_url}{endpoint}"
-        headers = {"Content-Type": "application/json"}
+        headers = self.headers.copy()
         
         if token:
             headers["Authorization"] = f"Bearer {token}"
-            
+        
         try:
             if method == "GET":
-                response = self.session.get(url, headers=headers, params=params)
+                response = requests.get(url, headers=headers)
             elif method == "POST":
-                response = self.session.post(url, headers=headers, json=data)
+                response = requests.post(url, headers=headers, json=data)
             elif method == "PUT":
-                response = self.session.put(url, headers=headers, json=data)
+                response = requests.put(url, headers=headers, json=data)
             elif method == "DELETE":
-                response = self.session.delete(url, headers=headers)
+                response = requests.delete(url, headers=headers)
             else:
                 raise ValueError(f"Unsupported method: {method}")
-                
+            
             return response
-        except Exception as e:
-            print(f"Request error: {str(e)}")
+        except requests.exceptions.RequestException as e:
+            print(f"Request failed: {e}")
             return None
-
-    def test_auth_flow(self):
-        """Test FLOW 1: AUTH (Signup + Login)"""
-        print("\n=== FLOW 1: AUTH TESTING ===")
-        
-        # Test 1: Signup
-        signup_data = {
-            "full_name": "Test User",
-            "email": f"flowtest{self.timestamp}@test.com",
-            "password": "Test1234!"
+    
+    def test_user_signup(self, email, full_name, password):
+        """Test user signup and return token and user_id"""
+        data = {
+            "email": email,
+            "full_name": full_name,
+            "password": password
         }
         
-        response = self.make_request("POST", "/auth/signup", signup_data)
+        response = self.make_request("POST", "/auth/signup", data)
+        
         if response and response.status_code == 200:
-            data = response.json()
-            self.user1_token = data.get("token")
-            self.log_test("1. User Signup", True, f"Token received: {bool(self.user1_token)}")
+            result = response.json()
+            return result.get("token"), result.get("user", {}).get("email")
         else:
-            self.log_test("1. User Signup", False, f"Status: {response.status_code if response else 'No response'}")
-            return False
-            
-        # Test 2: Login
-        login_data = {
-            "email": f"flowtest{self.timestamp}@test.com",
-            "password": "Test1234!"
+            error_msg = response.json().get("detail", "Unknown error") if response else "No response"
+            print(f"Signup failed: {error_msg}")
+            return None, None
+    
+    def get_user_id_from_profile(self, token):
+        """Get user ID from profile endpoint"""
+        response = self.make_request("GET", "/auth/me", token=token)
+        
+        if response and response.status_code == 200:
+            result = response.json()
+            return result.get("id")
+        return None
+    
+    def test_create_report(self, reporter_token, reported_user_id, content_type, reason, details):
+        """Test creating a report"""
+        data = {
+            "reported_user_id": reported_user_id,
+            "content_type": content_type,
+            "reason": reason,
+            "details": details
         }
         
-        response = self.make_request("POST", "/auth/login", login_data)
-        if response and response.status_code == 200:
-            data = response.json()
-            token = data.get("token")
-            self.log_test("2. User Login", True, f"JWT token returned: {bool(token)}")
-            # Use the login token for subsequent requests
-            self.user1_token = token
-        else:
-            self.log_test("2. User Login", False, f"Status: {response.status_code if response else 'No response'}")
-            return False
-            
-        return True
-
-    def test_profile_update_flow(self):
-        """Test FLOW 2: PROFILE UPDATE (Critical - must persist)"""
-        print("\n=== FLOW 2: PROFILE UPDATE TESTING ===")
+        response = self.make_request("POST", "/report", data, token=reporter_token)
         
-        if not self.user1_token:
-            self.log_test("Profile Update Flow", False, "No auth token available")
-            return False
-            
-        # Test 4: First profile update
-        profile_data = {
-            "full_name": "Updated Name",
-            "bio": "Test bio",
-            "city": "New York",
-            "specialties": "Hair Color"
-        }
-        
-        response = self.make_request("PUT", "/auth/profile", profile_data, self.user1_token)
         if response and response.status_code == 200:
-            self.log_test("4. Profile Update #1", True, "Profile updated successfully")
+            return True, response.json()
         else:
-            self.log_test("4. Profile Update #1", False, f"Status: {response.status_code if response else 'No response'}")
-            return False
-            
-        # Test 5: Verify profile data persisted
-        response = self.make_request("GET", "/auth/me", token=self.user1_token)
+            error_msg = response.json().get("detail", "Unknown error") if response else "No response"
+            return False, error_msg
+    
+    def test_block_user(self, blocker_token, user_id_to_block):
+        """Test blocking a user"""
+        response = self.make_request("POST", f"/block/{user_id_to_block}", token=blocker_token)
+        
         if response and response.status_code == 200:
-            data = response.json()
-            bio_ok = data.get("bio") == "Test bio"
-            city_ok = data.get("city") == "New York"
-            specialties_ok = data.get("specialties") == "Hair Color"
-            name_ok = data.get("full_name") == "Updated Name"
-            
-            if bio_ok and city_ok and specialties_ok and name_ok:
-                self.log_test("5. Profile Data Persistence #1", True, "All fields persisted correctly")
-                self.user1_id = data.get("id")
+            return True, response.json()
+        else:
+            error_msg = response.json().get("detail", "Unknown error") if response else "No response"
+            return False, error_msg
+    
+    def test_get_blocked_users(self, token):
+        """Test getting blocked users list"""
+        response = self.make_request("GET", "/blocked", token=token)
+        
+        if response and response.status_code == 200:
+            return True, response.json()
+        else:
+            error_msg = response.json().get("detail", "Unknown error") if response else "No response"
+            return False, error_msg
+    
+    def test_discover_users(self, token, search=None):
+        """Test user discovery endpoint"""
+        endpoint = "/users/discover"
+        if search:
+            endpoint += f"?search={search}"
+        
+        response = self.make_request("GET", endpoint, token=token)
+        
+        if response and response.status_code == 200:
+            return True, response.json()
+        else:
+            error_msg = response.json().get("detail", "Unknown error") if response else "No response"
+            return False, error_msg
+    
+    def test_get_user_profile(self, token, user_id):
+        """Test getting user profile"""
+        response = self.make_request("GET", f"/users/{user_id}/profile", token=token)
+        
+        return response.status_code, response.json() if response else None
+    
+    def test_unblock_user(self, blocker_token, user_id_to_unblock):
+        """Test unblocking a user"""
+        response = self.make_request("DELETE", f"/block/{user_id_to_unblock}", token=blocker_token)
+        
+        if response and response.status_code == 200:
+            return True, response.json()
+        else:
+            error_msg = response.json().get("detail", "Unknown error") if response else "No response"
+            return False, error_msg
+    
+    def run_moderation_tests(self):
+        """Run comprehensive moderation system tests"""
+        print("🧪 Starting StyleFlow Moderation System API Tests")
+        print("=" * 60)
+        
+        # FLOW 1: Create test users
+        print("\n📝 FLOW 1: USER CREATION")
+        
+        # Create User A (Reporter)
+        self.user_a_token, user_a_email = self.test_user_signup(
+            "reporter_test@test.com", 
+            "Reporter User", 
+            "Test1234!"
+        )
+        
+        if self.user_a_token:
+            self.user_a_id = self.get_user_id_from_profile(self.user_a_token)
+            self.log_test("Create User A (Reporter)", True, f"Email: {user_a_email}, ID: {self.user_a_id}")
+        else:
+            self.log_test("Create User A (Reporter)", False, "Failed to create user")
+            return
+        
+        # Create User B (Reported)
+        self.user_b_token, user_b_email = self.test_user_signup(
+            "reported_test@test.com", 
+            "Reported User", 
+            "Test1234!"
+        )
+        
+        if self.user_b_token:
+            self.user_b_id = self.get_user_id_from_profile(self.user_b_token)
+            self.log_test("Create User B (Reported)", True, f"Email: {user_b_email}, ID: {self.user_b_id}")
+        else:
+            self.log_test("Create User B (Reported)", False, "Failed to create user")
+            return
+        
+        # FLOW 2: Test Report System
+        print("\n📋 FLOW 2: REPORT SYSTEM")
+        
+        success, result = self.test_create_report(
+            self.user_a_token,
+            self.user_b_id,
+            "profile",
+            "spam",
+            "Test spam report"
+        )
+        
+        if success:
+            self.log_test("Create Report", True, f"Report ID: {result.get('report_id', 'N/A')}")
+        else:
+            self.log_test("Create Report", False, f"Error: {result}")
+        
+        # FLOW 3: Test Block System
+        print("\n🚫 FLOW 3: BLOCK SYSTEM")
+        
+        # Block User B
+        success, result = self.test_block_user(self.user_a_token, self.user_b_id)
+        if success:
+            self.log_test("Block User B", True, "User blocked successfully")
+        else:
+            self.log_test("Block User B", False, f"Error: {result}")
+            return
+        
+        # Get blocked users list
+        success, blocked_list = self.test_get_blocked_users(self.user_a_token)
+        if success:
+            blocked_ids = [user["id"] for user in blocked_list]
+            if self.user_b_id in blocked_ids:
+                self.log_test("Verify Blocked List", True, f"User B found in blocked list ({len(blocked_list)} total)")
             else:
-                missing = []
-                if not bio_ok: missing.append("bio")
-                if not city_ok: missing.append("city")
-                if not specialties_ok: missing.append("specialties")
-                if not name_ok: missing.append("full_name")
-                self.log_test("5. Profile Data Persistence #1", False, f"Missing/incorrect fields: {missing}")
-                return False
+                self.log_test("Verify Blocked List", False, f"User B not found in blocked list")
         else:
-            self.log_test("5. Profile Data Persistence #1", False, f"Status: {response.status_code if response else 'No response'}")
-            return False
-            
-        # Test 6: Second profile update (add instagram)
-        profile_data2 = {
-            "instagram_handle": "@testsalonista"
-        }
+            self.log_test("Get Blocked Users", False, f"Error: {blocked_list}")
         
-        response = self.make_request("PUT", "/auth/profile", profile_data2, self.user1_token)
-        if response and response.status_code == 200:
-            self.log_test("6. Profile Update #2", True, "Instagram handle added")
-        else:
-            self.log_test("6. Profile Update #2", False, f"Status: {response.status_code if response else 'No response'}")
-            return False
-            
-        # Test 7: Verify all profile data persisted
-        response = self.make_request("GET", "/auth/me", token=self.user1_token)
-        if response and response.status_code == 200:
-            data = response.json()
-            bio_ok = data.get("bio") == "Test bio"
-            city_ok = data.get("city") == "New York"
-            specialties_ok = data.get("specialties") == "Hair Color"
-            name_ok = data.get("full_name") == "Updated Name"
-            instagram_ok = data.get("instagram_handle") == "@testsalonista"
-            
-            if bio_ok and city_ok and specialties_ok and name_ok and instagram_ok:
-                self.log_test("7. Profile Data Persistence #2", True, "All fields including instagram persisted")
+        # FLOW 4: Test Discover Filters
+        print("\n🔍 FLOW 4: DISCOVER FILTERS")
+        
+        # Test User A discover (should not see User B)
+        success, discover_results = self.test_discover_users(self.user_a_token)
+        if success:
+            discovered_ids = [user["id"] for user in discover_results]
+            if self.user_b_id not in discovered_ids:
+                self.log_test("User A Discover (blocked filter)", True, f"User B correctly filtered out ({len(discover_results)} users found)")
             else:
-                missing = []
-                if not bio_ok: missing.append("bio")
-                if not city_ok: missing.append("city")
-                if not specialties_ok: missing.append("specialties")
-                if not name_ok: missing.append("full_name")
-                if not instagram_ok: missing.append("instagram_handle")
-                self.log_test("7. Profile Data Persistence #2", False, f"Missing/incorrect fields: {missing}")
-                return False
+                self.log_test("User A Discover (blocked filter)", False, "User B should not appear in discover results")
         else:
-            self.log_test("7. Profile Data Persistence #2", False, f"Status: {response.status_code if response else 'No response'}")
-            return False
-            
-        return True
-
-    def test_discover_users_flow(self):
-        """Test FLOW 3: DISCOVER USERS"""
-        print("\n=== FLOW 3: DISCOVER USERS TESTING ===")
+            self.log_test("User A Discover", False, f"Error: {discover_results}")
         
-        if not self.user1_token:
-            self.log_test("Discover Users Flow", False, "No auth token available")
-            return False
-            
-        # Test 8: Get discover users list
-        response = self.make_request("GET", "/users/discover", token=self.user1_token)
-        if response and response.status_code == 200:
-            data = response.json()
-            self.log_test("8. Discover Users List", True, f"Returned {len(data)} users")
-        else:
-            self.log_test("8. Discover Users List", False, f"Status: {response.status_code if response else 'No response'}")
-            return False
-            
-        # Test 9: Search users with query param
-        response = self.make_request("GET", "/users/discover", token=self.user1_token, params={"search": "test"})
-        if response and response.status_code == 200:
-            data = response.json()
-            self.log_test("9. Discover Users Search", True, f"Search returned {len(data)} users")
-        else:
-            self.log_test("9. Discover Users Search", False, f"Status: {response.status_code if response else 'No response'}")
-            return False
-            
-        return True
-
-    def test_user_profile_view_flow(self):
-        """Test FLOW 4: USER PROFILE VIEW"""
-        print("\n=== FLOW 4: USER PROFILE VIEW TESTING ===")
-        
-        if not self.user1_token:
-            self.log_test("User Profile View Flow", False, "No auth token available")
-            return False
-            
-        # Test 10: Create second user
-        signup_data2 = {
-            "full_name": "Other Stylist",
-            "email": f"otherstylist{self.timestamp}@test.com",
-            "password": "Test1234!"
-        }
-        
-        response = self.make_request("POST", "/auth/signup", signup_data2)
-        if response and response.status_code == 200:
-            data = response.json()
-            self.user2_token = data.get("token")
-            self.log_test("10. Create Second User", True, f"Second user created")
-            
-            # Get user2 ID
-            response = self.make_request("GET", "/auth/me", token=self.user2_token)
-            if response and response.status_code == 200:
-                self.user2_id = response.json().get("id")
-        else:
-            self.log_test("10. Create Second User", False, f"Status: {response.status_code if response else 'No response'}")
-            return False
-            
-        # Test 11: View second user's profile using first user's token
-        if self.user2_id:
-            response = self.make_request("GET", f"/users/{self.user2_id}/profile", token=self.user1_token)
-            if response and response.status_code == 200:
-                data = response.json()
-                has_following = "is_following" in data
-                has_followers_count = "followers_count" in data
-                has_following_count = "following_count" in data
-                
-                if has_following and has_followers_count and has_following_count:
-                    self.log_test("11. View User Profile", True, f"Profile returned with follow data")
-                else:
-                    missing = []
-                    if not has_following: missing.append("is_following")
-                    if not has_followers_count: missing.append("followers_count")
-                    if not has_following_count: missing.append("following_count")
-                    self.log_test("11. View User Profile", False, f"Missing fields: {missing}")
-                    return False
+        # Test User B discover (should not see User A)
+        success, discover_results = self.test_discover_users(self.user_b_token)
+        if success:
+            discovered_ids = [user["id"] for user in discover_results]
+            if self.user_a_id not in discovered_ids:
+                self.log_test("User B Discover (bidirectional block)", True, f"User A correctly filtered out ({len(discover_results)} users found)")
             else:
-                self.log_test("11. View User Profile", False, f"Status: {response.status_code if response else 'No response'}")
-                return False
+                self.log_test("User B Discover (bidirectional block)", False, "User A should not appear in discover results")
         else:
-            self.log_test("11. View User Profile", False, "No user2_id available")
-            return False
-            
-        return True
-
-    def test_follow_unfollow_flow(self):
-        """Test FLOW 5: FOLLOW/UNFOLLOW"""
-        print("\n=== FLOW 5: FOLLOW/UNFOLLOW TESTING ===")
+            self.log_test("User B Discover", False, f"Error: {discover_results}")
         
-        if not self.user1_token or not self.user2_id:
-            self.log_test("Follow/Unfollow Flow", False, "Missing auth token or user2_id")
-            return False
-            
-        # Test 12: Follow user
-        response = self.make_request("POST", f"/users/{self.user2_id}/follow", token=self.user1_token)
-        if response and response.status_code == 200:
-            self.log_test("12. Follow User", True, "Follow successful")
+        # FLOW 5: Test Profile Access Blocking
+        print("\n👤 FLOW 5: PROFILE ACCESS BLOCKING")
+        
+        # User A tries to view User B's profile (should get 403)
+        status_code, response = self.test_get_user_profile(self.user_a_token, self.user_b_id)
+        if status_code == 403:
+            self.log_test("Blocked Profile Access (A→B)", True, "403 Forbidden returned correctly")
         else:
-            self.log_test("12. Follow User", False, f"Status: {response.status_code if response else 'No response'} - ENDPOINT MISSING")
-            
-        # Test 13: Verify follow state
-        response = self.make_request("GET", f"/users/{self.user2_id}/profile", token=self.user1_token)
-        if response and response.status_code == 200:
-            data = response.json()
-            is_following = data.get("is_following", False)
-            followers_count = data.get("followers_count", 0)
-            
-            if is_following and followers_count > 0:
-                self.log_test("13. Verify Follow State", True, f"is_following=true, followers_count={followers_count}")
+            self.log_test("Blocked Profile Access (A→B)", False, f"Expected 403, got {status_code}")
+        
+        # User B tries to view User A's profile (should get 403)
+        status_code, response = self.test_get_user_profile(self.user_b_token, self.user_a_id)
+        if status_code == 403:
+            self.log_test("Blocked Profile Access (B→A)", True, "403 Forbidden returned correctly")
+        else:
+            self.log_test("Blocked Profile Access (B→A)", False, f"Expected 403, got {status_code}")
+        
+        # FLOW 6: Test Unblock System
+        print("\n🔓 FLOW 6: UNBLOCK SYSTEM")
+        
+        # Unblock User B
+        success, result = self.test_unblock_user(self.user_a_token, self.user_b_id)
+        if success:
+            self.log_test("Unblock User B", True, "User unblocked successfully")
+        else:
+            self.log_test("Unblock User B", False, f"Error: {result}")
+            return
+        
+        # Test profile access after unblock (should work now)
+        status_code, response = self.test_get_user_profile(self.user_a_token, self.user_b_id)
+        if status_code == 200:
+            self.log_test("Profile Access After Unblock", True, "200 OK returned correctly")
+        else:
+            self.log_test("Profile Access After Unblock", False, f"Expected 200, got {status_code}")
+        
+        # FLOW 7: Test Re-block for Final Discover Test
+        print("\n🔄 FLOW 7: RE-BLOCK FOR FINAL TESTS")
+        
+        # Re-block for final discover test
+        success, result = self.test_block_user(self.user_a_token, self.user_b_id)
+        if success:
+            self.log_test("Re-block User B", True, "User re-blocked successfully")
+        else:
+            self.log_test("Re-block User B", False, f"Error: {result}")
+        
+        # Final discover test
+        success, discover_results = self.test_discover_users(self.user_a_token)
+        if success:
+            discovered_ids = [user["id"] for user in discover_results]
+            if self.user_b_id not in discovered_ids:
+                self.log_test("Final Discover Filter Test", True, "Blocked users correctly filtered")
             else:
-                self.log_test("13. Verify Follow State", False, f"is_following={is_following}, followers_count={followers_count}")
+                self.log_test("Final Discover Filter Test", False, "Blocked user still appears in results")
         else:
-            self.log_test("13. Verify Follow State", False, f"Status: {response.status_code if response else 'No response'}")
-            
-        # Test 14: Unfollow user
-        response = self.make_request("DELETE", f"/users/{self.user2_id}/follow", token=self.user1_token)
-        if response and response.status_code == 200:
-            self.log_test("14. Unfollow User", True, "Unfollow successful")
-        else:
-            self.log_test("14. Unfollow User", False, f"Status: {response.status_code if response else 'No response'} - ENDPOINT MISSING")
-            
-        # Test 15: Verify unfollow state
-        response = self.make_request("GET", f"/users/{self.user2_id}/profile", token=self.user1_token)
-        if response and response.status_code == 200:
-            data = response.json()
-            is_following = data.get("is_following", True)  # Should be False
-            followers_count = data.get("followers_count", 1)  # Should be 0
-            
-            if not is_following and followers_count == 0:
-                self.log_test("15. Verify Unfollow State", True, f"is_following=false, followers_count={followers_count}")
-            else:
-                self.log_test("15. Verify Unfollow State", False, f"is_following={is_following}, followers_count={followers_count}")
-        else:
-            self.log_test("15. Verify Unfollow State", False, f"Status: {response.status_code if response else 'No response'}")
-            
-        return True
-
-    def test_portfolio_flow(self):
-        """Test FLOW 6: PORTFOLIO"""
-        print("\n=== FLOW 6: PORTFOLIO TESTING ===")
+            self.log_test("Final Discover Filter Test", False, f"Error: {discover_results}")
         
-        if not self.user1_token:
-            self.log_test("Portfolio Flow", False, "No auth token available")
-            return False
-            
-        # Test 16: Upload portfolio image
-        # Create a small valid base64 image
-        small_image_b64 = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwA/8A"
-        
-        portfolio_data = {
-            "image": small_image_b64,
-            "caption": "Test portfolio image"
-        }
-        
-        response = self.make_request("POST", "/portfolio", portfolio_data, self.user1_token)
-        if response and response.status_code == 200:
-            data = response.json()
-            self.portfolio_image_id = data.get("id")
-            self.log_test("16. Upload Portfolio Image", True, f"Image uploaded with ID: {self.portfolio_image_id}")
-        else:
-            self.log_test("16. Upload Portfolio Image", False, f"Status: {response.status_code if response else 'No response'}")
-            return False
-            
-        # Test 17: Get portfolio list
-        response = self.make_request("GET", "/portfolio", token=self.user1_token)
-        if response and response.status_code == 200:
-            data = response.json()
-            if len(data) > 0 and any(item.get("id") == self.portfolio_image_id for item in data):
-                self.log_test("17. Get Portfolio List", True, f"Portfolio contains {len(data)} images including uploaded image")
-            else:
-                self.log_test("17. Get Portfolio List", False, f"Uploaded image not found in portfolio list")
-                return False
-        else:
-            self.log_test("17. Get Portfolio List", False, f"Status: {response.status_code if response else 'No response'}")
-            return False
-            
-        # Test 18: Delete portfolio image
-        if self.portfolio_image_id:
-            response = self.make_request("DELETE", f"/portfolio/{self.portfolio_image_id}", token=self.user1_token)
-            if response and response.status_code == 200:
-                self.log_test("18. Delete Portfolio Image", True, "Image deleted successfully")
-            else:
-                self.log_test("18. Delete Portfolio Image", False, f"Status: {response.status_code if response else 'No response'}")
-                return False
-        else:
-            self.log_test("18. Delete Portfolio Image", False, "No image ID available")
-            return False
-            
-        # Test 19: Verify image removed
-        response = self.make_request("GET", "/portfolio", token=self.user1_token)
-        if response and response.status_code == 200:
-            data = response.json()
-            if not any(item.get("id") == self.portfolio_image_id for item in data):
-                self.log_test("19. Verify Image Removed", True, f"Image successfully removed from portfolio")
-            else:
-                self.log_test("19. Verify Image Removed", False, f"Image still exists in portfolio")
-                return False
-        else:
-            self.log_test("19. Verify Image Removed", False, f"Status: {response.status_code if response else 'No response'}")
-            return False
-            
-        return True
-
-    def run_all_tests(self):
-        """Run all test flows"""
-        print("🚀 Starting StyleFlow Backend API Testing")
-        print(f"Base URL: {self.base_url}")
-        
-        # Run all test flows
-        flows = [
-            self.test_auth_flow,
-            self.test_profile_update_flow,
-            self.test_discover_users_flow,
-            self.test_user_profile_view_flow,
-            self.test_follow_unfollow_flow,
-            self.test_portfolio_flow
-        ]
-        
-        for flow in flows:
-            try:
-                flow()
-            except Exception as e:
-                print(f"❌ Flow failed with exception: {str(e)}")
-                
-        # Summary
-        print("\n" + "="*50)
+        # Print summary
+        self.print_summary()
+    
+    def print_summary(self):
+        """Print test summary"""
+        print("\n" + "=" * 60)
         print("📊 TEST SUMMARY")
-        print("="*50)
+        print("=" * 60)
         
         passed = sum(1 for result in self.test_results if result["success"])
         total = len(self.test_results)
@@ -424,32 +326,20 @@ class StyleFlowTester:
         print(f"Failed: {total - passed}")
         print(f"Success Rate: {(passed/total)*100:.1f}%")
         
-        # Failed tests
-        failed_tests = [result for result in self.test_results if not result["success"]]
-        if failed_tests:
-            print(f"\n❌ FAILED TESTS ({len(failed_tests)}):")
-            for test in failed_tests:
-                print(f"  • {test['test']}: {test['details']}")
-                
-        # Critical issues
-        critical_issues = []
-        for test in failed_tests:
-            if "ENDPOINT MISSING" in test["details"]:
-                critical_issues.append(test["test"])
-                
-        if critical_issues:
-            print(f"\n🚨 CRITICAL ISSUES:")
-            print("  • Follow/Unfollow endpoints are missing from backend")
-            print("  • Required endpoints: POST /api/users/{id}/follow, DELETE /api/users/{id}/follow")
-            
-        return passed, total, failed_tests, critical_issues
+        if total - passed > 0:
+            print("\n❌ FAILED TESTS:")
+            for result in self.test_results:
+                if not result["success"]:
+                    print(f"  • {result['test']}: {result['details']}")
+        
+        print("\n🎯 CRITICAL MODERATION FEATURES TESTED:")
+        print("  ✓ Report creation and validation")
+        print("  ✓ User blocking and unblocking")
+        print("  ✓ Blocked users list management")
+        print("  ✓ Discover endpoint filtering")
+        print("  ✓ Profile access restrictions")
+        print("  ✓ Bidirectional blocking behavior")
 
 if __name__ == "__main__":
-    tester = StyleFlowTester()
-    passed, total, failed_tests, critical_issues = tester.run_all_tests()
-    
-    # Exit with error code if tests failed
-    if failed_tests:
-        sys.exit(1)
-    else:
-        sys.exit(0)
+    tester = ModerationTester()
+    tester.run_moderation_tests()

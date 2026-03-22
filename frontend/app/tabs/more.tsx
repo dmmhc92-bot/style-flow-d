@@ -190,6 +190,24 @@ export default function MoreScreen() {
           </Card>
         </View>
         
+        {/* Privacy & Safety */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Privacy & Safety</Text>
+          <Card style={styles.menuCard}>
+            <MenuItem
+              icon="ban-outline"
+              title="Blocked Users"
+              onPress={() => router.push('/settings/blocked')}
+            />
+            <View style={styles.divider} />
+            <MenuItem
+              icon="shield-outline"
+              title="Community Guidelines"
+              onPress={() => Linking.openURL('https://styleflow.app/guidelines')}
+            />
+          </Card>
+        </View>
+        
         {/* Account Actions */}
         <View style={styles.section}>
           <Card style={styles.menuCard}>

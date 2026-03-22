@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Button from '../../components/Button';
 import { Card } from '../../components/Card';
+import { ReportModal } from '../../components/ReportModal';
 import Colors from '../../constants/Colors';
 import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
@@ -27,6 +28,8 @@ export default function UserProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [following, setFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [showMoreOptions, setShowMoreOptions] = useState(false);
   
   useEffect(() => {
     loadProfile();
@@ -39,7 +42,11 @@ export default function UserProfileScreen() {
       setProfile(response.data);
       setFollowing(response.data.is_following);
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to load profile');
+      if (error.response?.status === 403) {
+        Alert.alert('Blocked', 'You cannot view this profile.');
+      } else {
+        Alert.alert('Error', error.response?.data?.detail || 'Failed to load profile');
+      }
       router.back();
     } finally {
       setLoading(false);
@@ -63,6 +70,29 @@ export default function UserProfileScreen() {
     } finally {
       setFollowLoading(false);
     }
+  };
+  
+  const handleBlock = () => {
+    Alert.alert(
+      'Block User',
+      `Are you sure you want to block ${profile?.full_name}? They won't be able to see your profile or interact with you.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.post(`/block/${id}`);
+              Alert.alert('Blocked', `${profile?.full_name} has been blocked.`);
+              router.back();
+            } catch (error: any) {
+              Alert.alert('Error', error.response?.data?.detail || 'Failed to block user');
+            }
+          },
+        },
+      ]
+    );
   };
   
   const openSocialLink = async (type: string, handle: string) => {
@@ -104,8 +134,40 @@ export default function UserProfileScreen() {
           <Ionicons name="arrow-back" size={24} color={Colors.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Profile</Text>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity 
+          style={styles.moreButton} 
+          onPress={() => setShowMoreOptions(!showMoreOptions)}
+        >
+          <Ionicons name="ellipsis-horizontal" size={24} color={Colors.text} />
+        </TouchableOpacity>
       </View>
+      
+      {/* More Options Dropdown */}
+      {showMoreOptions && (
+        <View style={styles.optionsDropdown}>
+          <TouchableOpacity 
+            style={styles.optionItem}
+            onPress={() => {
+              setShowMoreOptions(false);
+              setShowReportModal(true);
+            }}
+          >
+            <Ionicons name="flag-outline" size={20} color={Colors.warning} />
+            <Text style={styles.optionText}>Report</Text>
+          </TouchableOpacity>
+          <View style={styles.optionDivider} />
+          <TouchableOpacity 
+            style={styles.optionItem}
+            onPress={() => {
+              setShowMoreOptions(false);
+              handleBlock();
+            }}
+          >
+            <Ionicons name="ban-outline" size={20} color={Colors.error} />
+            <Text style={[styles.optionText, { color: Colors.error }]}>Block</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.profileHeader}>
@@ -133,13 +195,15 @@ export default function UserProfileScreen() {
             </View>
           </View>
           
-          <Button
-            title={following ? 'Following' : 'Follow'}
-            onPress={handleFollow}
-            loading={followLoading}
-            variant={following ? 'outline' : 'primary'}
-            style={styles.followButton}
-          />
+          <View style={styles.actionButtons}>
+            <Button
+              title={following ? 'Following' : 'Follow'}
+              onPress={handleFollow}
+              loading={followLoading}
+              variant={following ? 'outline' : 'primary'}
+              style={styles.followButton}
+            />
+          </View>
         </View>
         
         {profile.bio && (
@@ -191,7 +255,28 @@ export default function UserProfileScreen() {
             )}
           </Card>
         )}
+        
+        {/* Safety Section */}
+        <Card style={[styles.section, styles.safetySection]}>
+          <View style={styles.safetyHeader}>
+            <Ionicons name="shield-checkmark" size={20} color={Colors.info} />
+            <Text style={styles.safetyTitle}>Community Safety</Text>
+          </View>
+          <Text style={styles.safetyText}>
+            StyleFlow is for professional hairstyling content only. If you see 
+            inappropriate content, please report it to help keep our community safe.
+          </Text>
+        </Card>
       </ScrollView>
+      
+      {/* Report Modal */}
+      <ReportModal
+        visible={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        reportedUserId={id as string}
+        reportedUserName={profile?.full_name}
+        contentType="profile"
+      />
     </SafeAreaView>
   );
 }
@@ -216,10 +301,48 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  moreButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerTitle: {
     fontSize: Typography.h3,
     fontWeight: Typography.bold,
     color: Colors.text,
+  },
+  optionsDropdown: {
+    position: 'absolute',
+    top: 100,
+    right: Spacing.screenPadding,
+    backgroundColor: Colors.cardBackground,
+    borderRadius: 12,
+    padding: Spacing.sm,
+    zIndex: 100,
+    shadowColor: Colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
+    minWidth: 150,
+  },
+  optionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    gap: Spacing.sm,
+  },
+  optionText: {
+    fontSize: Typography.body,
+    color: Colors.text,
+    fontWeight: Typography.medium,
+  },
+  optionDivider: {
+    height: 1,
+    backgroundColor: Colors.border,
+    marginVertical: Spacing.xs,
   },
   loadingContainer: {
     flex: 1,
@@ -284,6 +407,10 @@ const styles = StyleSheet.create({
     height: 30,
     backgroundColor: Colors.border,
   },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+  },
   followButton: {
     minWidth: 200,
   },
@@ -316,5 +443,27 @@ const styles = StyleSheet.create({
     fontSize: Typography.body,
     color: Colors.text,
     marginLeft: Spacing.md,
+  },
+  safetySection: {
+    backgroundColor: Colors.info + '10',
+    borderWidth: 1,
+    borderColor: Colors.info + '30',
+    marginTop: Spacing.lg,
+  },
+  safetyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  safetyTitle: {
+    fontSize: Typography.bodySmall,
+    fontWeight: Typography.semibold,
+    color: Colors.info,
+  },
+  safetyText: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    lineHeight: 18,
   },
 });
