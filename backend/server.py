@@ -339,20 +339,28 @@ async def delete_account(current_user: dict = Depends(get_current_user)):
 @api_router.get("/auth/me")
 async def get_me(current_user: dict = Depends(get_current_user)):
     return {
+        "id": str(current_user["_id"]),
         "email": current_user["email"],
         "full_name": current_user["full_name"],
         "business_name": current_user.get("business_name"),
         "bio": current_user.get("bio"),
         "specialties": current_user.get("specialties"),
-        "salon_info": current_user.get("salon_info"),
+        "salon_name": current_user.get("salon_name"),
+        "city": current_user.get("city"),
         "profile_photo": current_user.get("profile_photo"),
+        "instagram_handle": current_user.get("instagram_handle"),
+        "tiktok_handle": current_user.get("tiktok_handle"),
+        "website_url": current_user.get("website_url"),
+        "profile_visibility": current_user.get("profile_visibility", "public"),
         "subscription_status": current_user.get("subscription_status", "free")
     }
 
 @api_router.put("/auth/profile")
 async def update_profile(profile_data: dict, current_user: dict = Depends(get_current_user)):
     update_fields = {}
-    allowed_fields = ["full_name", "business_name", "bio", "specialties", "salon_info", "profile_photo"]
+    allowed_fields = ["full_name", "business_name", "bio", "specialties", "salon_name", 
+                     "city", "profile_photo", "instagram_handle", "tiktok_handle", 
+                     "website_url", "profile_visibility"]
     
     for field in allowed_fields:
         if field in profile_data:
@@ -365,6 +373,196 @@ async def update_profile(profile_data: dict, current_user: dict = Depends(get_cu
         )
     
     return {"message": "Profile updated successfully"}
+
+# ==================== USER DISCOVERY & COMMUNITY ====================
+
+@api_router.get("/users/discover")
+async def discover_users(search: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    query = {"profile_visibility": "public"}
+    
+    if search:
+        query["$or"] = [
+            {"full_name": {"$regex": search, "$options": "i"}},
+            {"business_name": {"$regex": search, "$options": "i"}},
+            {"city": {"$regex": search, "$options": "i"}},
+            {"specialties": {"$regex": search, "$options": "i"}}
+        ]
+    
+    users = await db.users.find(query).limit(50).to_list(50)
+    
+    result = []
+    for user in users:
+        if str(user["_id"]) != str(current_user["_id"]):  # Exclude current user
+            result.append({
+                "id": str(user["_id"]),
+                "full_name": user.get("full_name"),
+                "business_name": user.get("business_name"),
+                "city": user.get("city"),
+                "specialties": user.get("specialties"),
+                "profile_photo": user.get("profile_photo"),
+                "bio": user.get("bio"),
+            })
+    
+    return result
+
+@api_router.get("/users/{user_id}/profile")
+async def get_user_profile(user_id: str, current_user: dict = Depends(get_current_user)):
+    from bson import ObjectId
+    
+    try:
+        user = await db.users.find_one({"_id": ObjectId(user_id)})
+    except:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user.get("profile_visibility") == "private" and str(user["_id"]) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Profile is private")
+    
+    # Check if current user follows this user
+    follow = await db.follows.find_one({
+        "follower_id": str(current_user["_id"]),
+        "following_id": user_id
+    })
+    
+    # Get follower/following counts
+    followers_count = await db.follows.count_documents({"following_id": user_id})
+    following_count = await db.follows.count_documents({"follower_id": user_id})
+    
+    return {
+        "id": str(user["_id"]),
+        "full_name": user.get("full_name"),
+        "business_name": user.get("business_name"),
+        "bio": user.get("bio"),
+        "salon_name": user.get("salon_name"),
+        "city": user.get("city"),
+        "specialties": user.get("specialties"),
+        "profile_photo": user.get("profile_photo"),
+        "instagram_handle": user.get("instagram_handle"),
+        "tiktok_handle": user.get("tiktok_handle"),
+        "website_url": user.get("website_url"),
+        "is_following": follow is not None,
+        "followers_count": followers_count,
+        "following_count": following_count,
+    }
+
+@api_router.post("/users/{user_id}/follow")
+async def follow_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    current_user_id = str(current_user["_id"])
+    
+    if current_user_id == user_id:
+        raise HTTPException(status_code=400, detail="Cannot follow yourself")
+    
+    # Check if already following
+    existing = await db.follows.find_one({
+        "follower_id": current_user_id,
+        "following_id": user_id
+    })
+    
+    if existing:
+        raise HTTPException(status_code=400, detail="Already following this user")
+    
+    # Create follow relationship
+    await db.follows.insert_one({
+        "follower_id": current_user_id,
+        "following_id": user_id,
+        "created_at": datetime.utcnow()
+    })
+    
+    return {"message": "Successfully followed user"}
+
+@api_router.delete("/users/{user_id}/follow")
+async def unfollow_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    current_user_id = str(current_user["_id"])
+    
+    result = await db.follows.delete_one({
+        "follower_id": current_user_id,
+        "following_id": user_id
+    })
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not following this user")
+    
+    return {"message": "Successfully unfollowed user"}
+
+@api_router.get("/users/following")
+async def get_following(current_user: dict = Depends(get_current_user)):
+    current_user_id = str(current_user["_id"])
+    
+    follows = await db.follows.find({"follower_id": current_user_id}).to_list(1000)
+    
+    result = []
+    from bson import ObjectId
+    for follow in follows:
+        try:
+            user = await db.users.find_one({"_id": ObjectId(follow["following_id"])})
+            if user:
+                result.append({
+                    "id": str(user["_id"]),
+                    "full_name": user.get("full_name"),
+                    "business_name": user.get("business_name"),
+                    "city": user.get("city"),
+                    "profile_photo": user.get("profile_photo"),
+                })
+        except:
+            continue
+    
+    return result
+
+# ==================== PORTFOLIO GALLERY ====================
+
+@api_router.post("/portfolio")
+async def add_portfolio_image(image_data: dict, current_user: dict = Depends(get_current_user)):
+    user_id = str(current_user["_id"])
+    
+    portfolio_doc = {
+        "user_id": user_id,
+        "image": image_data.get("image"),
+        "caption": image_data.get("caption"),
+        "created_at": datetime.utcnow()
+    }
+    
+    result = await db.portfolio.insert_one(portfolio_doc)
+    
+    return {
+        "id": str(result.inserted_id),
+        "message": "Image added to portfolio"
+    }
+
+@api_router.get("/portfolio")
+async def get_portfolio(user_id: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    target_user_id = user_id if user_id else str(current_user["_id"])
+    
+    portfolio = await db.portfolio.find({"user_id": target_user_id}).sort("created_at", -1).to_list(1000)
+    
+    result = []
+    for item in portfolio:
+        result.append({
+            "id": str(item["_id"]),
+            "image": item.get("image"),
+            "caption": item.get("caption"),
+            "created_at": item.get("created_at")
+        })
+    
+    return result
+
+@api_router.delete("/portfolio/{image_id}")
+async def delete_portfolio_image(image_id: str, current_user: dict = Depends(get_current_user)):
+    from bson import ObjectId
+    
+    try:
+        result = await db.portfolio.delete_one({
+            "_id": ObjectId(image_id),
+            "user_id": str(current_user["_id"])
+        })
+    except:
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Image not found")
+    
+    return {"message": "Image deleted successfully"}
 
 # ==================== CLIENT ENDPOINTS ====================
 

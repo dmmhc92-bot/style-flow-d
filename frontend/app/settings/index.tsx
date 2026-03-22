@@ -151,7 +151,7 @@ export default function SettingsScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name=\"arrow-back\" size={24} color={Colors.text} />
+          <Ionicons name="arrow-back" size={24} color={Colors.text} />
         </TouchableOpacity>
         <Text style={styles.title}>Settings</Text>
         <View style={{ width: 40 }} />
@@ -159,10 +159,10 @@ export default function SettingsScreen() {
       
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Profile Section */}
-        <SettingsSection title=\"ACCOUNT\">
+        <SettingsSection title="ACCOUNT">
           <View style={styles.profileSection}>
             <View style={styles.profileAvatar}>
-              <Ionicons name=\"person\" size={32} color={Colors.accent} />
+              <Ionicons name="person" size={32} color={Colors.accent} />
             </View>
             <View style={styles.profileInfo}>
               <Text style={styles.profileName}>{user?.full_name || 'User'}</Text>
@@ -178,7 +178,7 @@ export default function SettingsScreen() {
         </SettingsSection>
         
         {/* Subscription Section */}
-        <SettingsSection title=\"SUBSCRIPTION\">
+        <SettingsSection title="SUBSCRIPTION">
           <SettingsRow
             icon=\"diamond-outline\"
             title=\"StyleFlow Pro\"
@@ -200,7 +200,7 @@ export default function SettingsScreen() {
         </SettingsSection>
         
         {/* Support & Legal */}
-        <SettingsSection title=\"SUPPORT & LEGAL\">
+        <SettingsSection title="SUPPORT & LEGAL">
           <SettingsRow
             icon=\"help-circle-outline\"
             title=\"Support\"
@@ -221,7 +221,7 @@ export default function SettingsScreen() {
         </SettingsSection>
         
         {/* Account Actions */}
-        <SettingsSection title=\"ACCOUNT ACTIONS\">
+        <SettingsSection title="ACCOUNT ACTIONS">
           <SettingsRow
             icon=\"log-out-outline\"
             title=\"Sign Out\"
