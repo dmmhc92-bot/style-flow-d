@@ -451,7 +451,14 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         "website_url": current_user.get("website_url"),
         "profile_visibility": current_user.get("profile_visibility", "public"),
         "subscription_status": current_user.get("subscription_status", "free"),
-        "is_admin": current_user.get("is_admin", False)
+        "is_admin": current_user.get("is_admin", False),
+        # Moderation fields
+        "moderation_status": current_user.get("moderation_status", "good_standing"),
+        "warnings_count": current_user.get("warnings_count", 0),
+        "last_warning_reason": current_user.get("last_warning_reason"),
+        "suspended_until": current_user.get("suspended_until").isoformat() if current_user.get("suspended_until") else None,
+        "suspension_reason": current_user.get("suspension_reason"),
+        "ban_reason": current_user.get("ban_reason"),
     }
 
 @api_router.put("/auth/profile")

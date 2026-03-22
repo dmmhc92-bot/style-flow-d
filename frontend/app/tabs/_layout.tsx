@@ -3,8 +3,12 @@ import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Colors from '../../constants/Colors';
 import Typography from '../../constants/Typography';
+import { useModerationCheck } from '../../hooks/useModerationCheck';
 
 export default function TabLayout() {
+  // Check moderation status and redirect if suspended/banned
+  useModerationCheck();
+  
   return (
     <Tabs
       screenOptions={{

@@ -18,6 +18,13 @@ interface User {
   profile_visibility?: string;
   subscription_status?: string;
   is_admin?: boolean;
+  // Moderation fields
+  moderation_status?: string;
+  warnings_count?: number;
+  last_warning_reason?: string;
+  suspended_until?: string;
+  suspension_reason?: string;
+  ban_reason?: string;
 }
 
 interface AuthState {

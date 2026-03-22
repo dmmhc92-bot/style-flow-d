@@ -203,7 +203,7 @@ export default function MoreScreen() {
             <MenuItem
               icon="shield-outline"
               title="Community Guidelines"
-              onPress={() => Linking.openURL('https://styleflow.app/guidelines')}
+              onPress={() => router.push('/settings/guidelines')}
             />
           </Card>
         </View>
