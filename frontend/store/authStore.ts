@@ -3,13 +3,19 @@ import { storage } from '../utils/storage';
 import api from '../utils/api';
 
 interface User {
+  id?: string;
   email: string;
   full_name: string;
   business_name?: string;
   bio?: string;
   specialties?: string;
-  salon_info?: string;
+  salon_name?: string;
+  city?: string;
   profile_photo?: string;
+  instagram_handle?: string;
+  tiktok_handle?: string;
+  website_url?: string;
+  profile_visibility?: string;
   subscription_status?: string;
 }
 
@@ -90,8 +96,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   updateProfile: async (data: Partial<User>) => {
     try {
       await api.put('/auth/profile', data);
-      const currentUser = get().user;
-      const updatedUser = { ...currentUser, ...data } as User;
+      // Fetch updated user data from server to ensure consistency
+      const response = await api.get('/auth/me');
+      const updatedUser = response.data;
       await storage.setUserData(updatedUser);
       set({ user: updatedUser });
     } catch (error: any) {

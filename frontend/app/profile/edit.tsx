@@ -24,7 +24,7 @@ import api from '../../utils/api';
 
 export default function ProfileEditScreen() {
   const router = useRouter();
-  const { user, updateProfile } = useAuthStore();
+  const { user, updateProfile, loadUser } = useAuthStore();
   
   const [fullName, setFullName] = useState(user?.full_name || '');
   const [businessName, setBusinessName] = useState(user?.business_name || '');
@@ -38,6 +38,26 @@ export default function ProfileEditScreen() {
   const [profilePhoto, setProfilePhoto] = useState(user?.profile_photo || '');
   const [loading, setLoading] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  
+  // Load user data on mount and populate form when user changes
+  useEffect(() => {
+    loadUser();
+  }, []);
+  
+  useEffect(() => {
+    if (user) {
+      setFullName(user.full_name || '');
+      setBusinessName(user.business_name || '');
+      setBio(user.bio || '');
+      setCity(user.city || '');
+      setSalonName(user.salon_name || '');
+      setSpecialties(user.specialties || '');
+      setInstagram(user.instagram_handle || '');
+      setTiktok(user.tiktok_handle || '');
+      setWebsite(user.website_url || '');
+      setProfilePhoto(user.profile_photo || '');
+    }
+  }, [user]);
   
   const pickImage = async (useCamera: boolean) => {
     try {

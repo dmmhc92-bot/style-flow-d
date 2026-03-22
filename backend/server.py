@@ -256,7 +256,13 @@ async def signup(user_data: UserSignup):
         "bio": None,
         "specialties": None,
         "salon_info": None,
+        "salon_name": None,
+        "city": None,
         "profile_photo": None,
+        "instagram_handle": None,
+        "tiktok_handle": None,
+        "website_url": None,
+        "profile_visibility": "public",
         "created_at": datetime.utcnow(),
         "subscription_status": "free"
     }
