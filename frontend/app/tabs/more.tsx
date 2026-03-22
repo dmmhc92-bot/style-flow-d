@@ -102,7 +102,7 @@ export default function MoreScreen() {
             </View>
             <TouchableOpacity
               style={styles.editButton}
-              onPress={() => router.push('/settings/profile')}
+              onPress={() => router.push('/profile/edit')}
             >
               <Ionicons name="create-outline" size={20} color={Colors.accent} />
             </TouchableOpacity>
@@ -123,6 +123,18 @@ export default function MoreScreen() {
               icon="flask"
               title="Formula Vault"
               onPress={() => router.push('/settings/formulas')}
+            />
+            <View style={styles.divider} />
+            <MenuItem
+              icon="images"
+              title="Gallery"
+              onPress={() => router.push('/tabs/gallery')}
+            />
+            <View style={styles.divider} />
+            <MenuItem
+              icon="briefcase"
+              title="Portfolio"
+              onPress={() => router.push('/portfolio')}
             />
             <View style={styles.divider} />
             <MenuItem

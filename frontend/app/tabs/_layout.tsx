@@ -53,11 +53,11 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="gallery"
+        name="discover"
         options={{
-          title: 'Gallery',
+          title: 'Discover',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="images" size={size} color={color} />
+            <Ionicons name="search" size={size} color={color} />
           ),
         }}
       />
@@ -68,6 +68,12 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="menu" size={size} color={color} />
           ),
+        }}
+      />
+      <Tabs.Screen
+        name="gallery"
+        options={{
+          href: null,
         }}
       />
     </Tabs>
