@@ -294,6 +294,18 @@ REPORT_REASONS = [
 
 MODERATION_ACTIONS = ["dismiss", "warn", "remove_content", "restrict", "suspend", "ban"]
 
+# ==================== APPEAL MODELS ====================
+
+class AppealCreate(BaseModel):
+    reason: str  # Required appeal reason
+    additional_details: Optional[str] = None
+
+class AppealAction(BaseModel):
+    action: str  # "approve", "deny"
+    admin_notes: Optional[str] = None
+
+APPEAL_STATUSES = ["pending", "under_review", "approved", "denied"]
+
 # ==================== HELPER FUNCTIONS ====================
 
 def hash_password(password: str) -> str:
@@ -1501,6 +1513,267 @@ async def lift_moderation_status(
     })
     
     return {"message": "Moderation status lifted successfully"}
+
+# ==================== APPEAL SYSTEM ENDPOINTS ====================
+
+@api_router.post("/appeals")
+async def submit_appeal(appeal_data: AppealCreate, current_user: dict = Depends(get_current_user)):
+    """Submit an appeal for a moderation action"""
+    user_id = str(current_user["_id"])
+    
+    # Check if user has a moderation action to appeal
+    status = current_user.get("moderation_status", "good_standing")
+    if status not in ["suspended", "banned", "restricted", "warned"]:
+        raise HTTPException(status_code=400, detail="No moderation action to appeal")
+    
+    # Check if user already has a pending appeal
+    existing_appeal = await db.appeals.find_one({
+        "user_id": user_id,
+        "status": {"$in": ["pending", "under_review"]}
+    })
+    
+    if existing_appeal:
+        raise HTTPException(status_code=400, detail="You already have a pending appeal. Please wait for a decision.")
+    
+    # Create the appeal
+    appeal_doc = {
+        "user_id": user_id,
+        "user_email": current_user["email"],
+        "user_name": current_user.get("full_name"),
+        "moderation_status": status,
+        "original_reason": current_user.get("ban_reason") or current_user.get("suspension_reason") or current_user.get("last_warning_reason") or "Policy violation",
+        "suspended_until": current_user.get("suspended_until"),
+        "appeal_reason": appeal_data.reason,
+        "additional_details": appeal_data.additional_details,
+        "status": "pending",
+        "created_at": datetime.utcnow()
+    }
+    
+    result = await db.appeals.insert_one(appeal_doc)
+    
+    # Notify admins via WebSocket
+    notification = {
+        "type": "new_appeal",
+        "appeal_id": str(result.inserted_id),
+        "user": {
+            "id": user_id,
+            "name": current_user.get("full_name"),
+            "email": current_user["email"]
+        },
+        "moderation_status": status,
+        "created_at": datetime.utcnow().isoformat()
+    }
+    asyncio.create_task(admin_manager.broadcast_to_admins(notification))
+    
+    return {
+        "message": "Appeal submitted successfully",
+        "appeal_id": str(result.inserted_id),
+        "status": "pending"
+    }
+
+@api_router.get("/appeals/me")
+async def get_my_appeal(current_user: dict = Depends(get_current_user)):
+    """Get the current user's appeal status"""
+    user_id = str(current_user["_id"])
+    
+    # Get the most recent appeal
+    appeal = await db.appeals.find_one(
+        {"user_id": user_id},
+        sort=[("created_at", -1)]
+    )
+    
+    if not appeal:
+        return {"has_appeal": False}
+    
+    return {
+        "has_appeal": True,
+        "appeal": {
+            "id": str(appeal["_id"]),
+            "status": appeal.get("status"),
+            "appeal_reason": appeal.get("appeal_reason"),
+            "admin_notes": appeal.get("admin_notes"),
+            "decision_at": appeal.get("decision_at").isoformat() if appeal.get("decision_at") else None,
+            "created_at": appeal.get("created_at").isoformat() if appeal.get("created_at") else None
+        }
+    }
+
+@api_router.get("/admin/appeals")
+async def get_appeals_queue(
+    status: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all appeals for admin review"""
+    await check_admin(current_user)
+    
+    query = {}
+    if status:
+        query["status"] = status
+    
+    appeals = await db.appeals.find(query).sort("created_at", -1).to_list(100)
+    
+    result = []
+    for appeal in appeals:
+        # Get user info
+        user = await db.users.find_one({"_id": ObjectId(appeal["user_id"])})
+        
+        result.append({
+            "id": str(appeal["_id"]),
+            "user": {
+                "id": appeal["user_id"],
+                "name": appeal.get("user_name") or (user.get("full_name") if user else "Unknown"),
+                "email": appeal.get("user_email") or (user.get("email") if user else "Unknown"),
+            },
+            "moderation_status": appeal.get("moderation_status"),
+            "original_reason": appeal.get("original_reason"),
+            "suspended_until": appeal.get("suspended_until").isoformat() if appeal.get("suspended_until") else None,
+            "appeal_reason": appeal.get("appeal_reason"),
+            "additional_details": appeal.get("additional_details"),
+            "status": appeal.get("status"),
+            "admin_notes": appeal.get("admin_notes"),
+            "decided_by": appeal.get("decided_by"),
+            "decision_at": appeal.get("decision_at").isoformat() if appeal.get("decision_at") else None,
+            "created_at": appeal.get("created_at").isoformat() if appeal.get("created_at") else None
+        })
+    
+    return result
+
+@api_router.get("/admin/appeals/stats")
+async def get_appeals_stats(current_user: dict = Depends(get_current_user)):
+    """Get appeal statistics"""
+    await check_admin(current_user)
+    
+    pending = await db.appeals.count_documents({"status": "pending"})
+    under_review = await db.appeals.count_documents({"status": "under_review"})
+    approved = await db.appeals.count_documents({"status": "approved"})
+    denied = await db.appeals.count_documents({"status": "denied"})
+    
+    return {
+        "pending": pending,
+        "under_review": under_review,
+        "approved": approved,
+        "denied": denied,
+        "total": pending + under_review + approved + denied
+    }
+
+@api_router.post("/admin/appeals/{appeal_id}/action")
+async def process_appeal(
+    appeal_id: str,
+    action_data: AppealAction,
+    current_user: dict = Depends(get_current_user)
+):
+    """Process an appeal (approve or deny)"""
+    await check_admin(current_user)
+    
+    if action_data.action not in ["approve", "deny"]:
+        raise HTTPException(status_code=400, detail="Invalid action. Use 'approve' or 'deny'.")
+    
+    # Get the appeal
+    appeal = await db.appeals.find_one({"_id": ObjectId(appeal_id)})
+    if not appeal:
+        raise HTTPException(status_code=404, detail="Appeal not found")
+    
+    if appeal.get("status") in ["approved", "denied"]:
+        raise HTTPException(status_code=400, detail="This appeal has already been processed")
+    
+    user_id = appeal["user_id"]
+    
+    # Update appeal status
+    new_status = "approved" if action_data.action == "approve" else "denied"
+    await db.appeals.update_one(
+        {"_id": ObjectId(appeal_id)},
+        {
+            "$set": {
+                "status": new_status,
+                "admin_notes": action_data.admin_notes,
+                "decided_by": str(current_user["_id"]),
+                "decided_by_name": current_user.get("full_name"),
+                "decision_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    # If approved, restore user's account
+    if action_data.action == "approve":
+        await db.users.update_one(
+            {"_id": ObjectId(user_id)},
+            {
+                "$set": {
+                    "moderation_status": "good_standing",
+                    "flagged": False,
+                    "appeal_approved_at": datetime.utcnow()
+                },
+                "$unset": {
+                    "suspended_until": "",
+                    "suspension_reason": "",
+                    "ban_reason": "",
+                    "banned_at": "",
+                    "suspended_at": ""
+                }
+            }
+        )
+        
+        # Log the action
+        await db.moderation_log.insert_one({
+            "admin_id": str(current_user["_id"]),
+            "target_user_id": user_id,
+            "action": "appeal_approved",
+            "appeal_id": appeal_id,
+            "notes": action_data.admin_notes,
+            "created_at": datetime.utcnow()
+        })
+    else:
+        # Log denial
+        await db.moderation_log.insert_one({
+            "admin_id": str(current_user["_id"]),
+            "target_user_id": user_id,
+            "action": "appeal_denied",
+            "appeal_id": appeal_id,
+            "notes": action_data.admin_notes,
+            "created_at": datetime.utcnow()
+        })
+    
+    # Broadcast update to admins
+    notification = {
+        "type": "appeal_processed",
+        "appeal_id": appeal_id,
+        "action": action_data.action,
+        "admin_name": current_user.get("full_name"),
+        "created_at": datetime.utcnow().isoformat()
+    }
+    asyncio.create_task(admin_manager.broadcast_to_admins(notification))
+    
+    return {
+        "message": f"Appeal {action_data.action}d successfully",
+        "appeal_status": new_status
+    }
+
+@api_router.patch("/admin/appeals/{appeal_id}/review")
+async def mark_appeal_under_review(
+    appeal_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Mark an appeal as under review"""
+    await check_admin(current_user)
+    
+    appeal = await db.appeals.find_one({"_id": ObjectId(appeal_id)})
+    if not appeal:
+        raise HTTPException(status_code=404, detail="Appeal not found")
+    
+    if appeal.get("status") != "pending":
+        raise HTTPException(status_code=400, detail="Only pending appeals can be marked as under review")
+    
+    await db.appeals.update_one(
+        {"_id": ObjectId(appeal_id)},
+        {
+            "$set": {
+                "status": "under_review",
+                "reviewed_by": str(current_user["_id"]),
+                "review_started_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    return {"message": "Appeal marked as under review"}
 
 # ==================== USER MODERATION STATUS CHECK ====================
 
