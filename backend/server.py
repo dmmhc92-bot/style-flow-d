@@ -447,56 +447,69 @@ async def get_user_profile(user_id: str, current_user: dict = Depends(get_curren
         "following_count": following_count,
     }
 
-@api_router.post("/users/{user_id}/follow")
-async def follow_user(user_id: str, current_user: dict = Depends(get_current_user)):
+# ==================== CONNECTION MANAGEMENT ====================
+
+@api_router.post("/connections/{user_id}")
+async def add_connection(user_id: str, current_user: dict = Depends(get_current_user)):
     current_user_id = str(current_user["_id"])
     
     if current_user_id == user_id:
-        raise HTTPException(status_code=400, detail="Cannot follow yourself")
+        raise HTTPException(status_code=400, detail="Cannot connect with yourself")
     
-    # Check if already following
-    existing = await db.follows.find_one({
-        "follower_id": current_user_id,
-        "following_id": user_id
+    # Check if already connected
+    existing = await db.connections.find_one({
+        "user_id": current_user_id,
+        "connected_user_id": user_id
     })
     
     if existing:
-        raise HTTPException(status_code=400, detail="Already following this user")
+        raise HTTPException(status_code=400, detail="Already connected")
     
-    # Create follow relationship
-    await db.follows.insert_one({
-        "follower_id": current_user_id,
-        "following_id": user_id,
+    # Check if user is blocked
+    blocked = await db.blocks.find_one({
+        "$or": [
+            {"blocker_id": current_user_id, "blocked_id": user_id},
+            {"blocker_id": user_id, "blocked_id": current_user_id}
+        ]
+    })
+    
+    if blocked:
+        raise HTTPException(status_code=403, detail="Cannot connect with this user")
+    
+    # Create connection
+    await db.connections.insert_one({
+        "user_id": current_user_id,
+        "connected_user_id": user_id,
         "created_at": datetime.utcnow()
     })
     
-    return {"message": "Successfully followed user"}
+    return {"message": "Connection added successfully"}
 
-@api_router.delete("/users/{user_id}/follow")
-async def unfollow_user(user_id: str, current_user: dict = Depends(get_current_user)):
+@api_router.delete("/connections/{user_id}")
+async def remove_connection(user_id: str, current_user: dict = Depends(get_current_user)):
     current_user_id = str(current_user["_id"])
     
-    result = await db.follows.delete_one({
-        "follower_id": current_user_id,
-        "following_id": user_id
+    result = await db.connections.delete_one({
+        "user_id": current_user_id,
+        "connected_user_id": user_id
     })
     
     if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Not following this user")
+        raise HTTPException(status_code=404, detail="Connection not found")
     
-    return {"message": "Successfully unfollowed user"}
+    return {"message": "Connection removed successfully"}
 
-@api_router.get("/users/following")
-async def get_following(current_user: dict = Depends(get_current_user)):
+@api_router.get("/connections")
+async def get_connections(current_user: dict = Depends(get_current_user)):
     current_user_id = str(current_user["_id"])
     
-    follows = await db.follows.find({"follower_id": current_user_id}).to_list(1000)
+    connections = await db.connections.find({"user_id": current_user_id}).to_list(1000)
     
     result = []
     from bson import ObjectId
-    for follow in follows:
+    for conn in connections:
         try:
-            user = await db.users.find_one({"_id": ObjectId(follow["following_id"])})
+            user = await db.users.find_one({"_id": ObjectId(conn["connected_user_id"])})
             if user:
                 result.append({
                     "id": str(user["_id"]),
@@ -504,11 +517,146 @@ async def get_following(current_user: dict = Depends(get_current_user)):
                     "business_name": user.get("business_name"),
                     "city": user.get("city"),
                     "profile_photo": user.get("profile_photo"),
+                    "specialties": user.get("specialties"),
                 })
         except:
             continue
     
     return result
+
+# ==================== BLOCK SYSTEM ====================
+
+@api_router.post("/block/{user_id}")
+async def block_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    current_user_id = str(current_user["_id"])
+    
+    if current_user_id == user_id:
+        raise HTTPException(status_code=400, detail="Cannot block yourself")
+    
+    # Check if already blocked
+    existing = await db.blocks.find_one({
+        "blocker_id": current_user_id,
+        "blocked_id": user_id
+    })
+    
+    if existing:
+        raise HTTPException(status_code=400, detail="User already blocked")
+    
+    # Remove any existing connection
+    await db.connections.delete_many({
+        "$or": [
+            {"user_id": current_user_id, "connected_user_id": user_id},
+            {"user_id": user_id, "connected_user_id": current_user_id}
+        ]
+    })
+    
+    # Remove follow relationships
+    await db.follows.delete_many({
+        "$or": [
+            {"follower_id": current_user_id, "following_id": user_id},
+            {"follower_id": user_id, "following_id": current_user_id}
+        ]
+    })
+    
+    # Create block
+    await db.blocks.insert_one({
+        "blocker_id": current_user_id,
+        "blocked_id": user_id,
+        "created_at": datetime.utcnow()
+    })
+    
+    return {"message": "User blocked successfully"}
+
+@api_router.delete("/block/{user_id}")
+async def unblock_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    current_user_id = str(current_user["_id"])
+    
+    result = await db.blocks.delete_one({
+        "blocker_id": current_user_id,
+        "blocked_id": user_id
+    })
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="User not blocked")
+    
+    return {"message": "User unblocked successfully"}
+
+@api_router.get("/blocked")
+async def get_blocked_users(current_user: dict = Depends(get_current_user)):
+    current_user_id = str(current_user["_id"])
+    
+    blocks = await db.blocks.find({"blocker_id": current_user_id}).to_list(1000)
+    
+    result = []
+    from bson import ObjectId
+    for block in blocks:
+        try:
+            user = await db.users.find_one({"_id": ObjectId(block["blocked_id"])})
+            if user:
+                result.append({
+                    "id": str(user["_id"]),
+                    "full_name": user.get("full_name"),
+                    "business_name": user.get("business_name"),
+                    "profile_photo": user.get("profile_photo"),
+                    "blocked_at": block.get("created_at"),
+                })
+        except:
+            continue
+    
+    return result
+
+# ==================== REPORT SYSTEM ====================
+
+@api_router.post("/report/{user_id}")
+async def report_user(user_id: str, report_data: dict, current_user: dict = Depends(get_current_user)):
+    current_user_id = str(current_user["_id"])
+    
+    if current_user_id == user_id:
+        raise HTTPException(status_code=400, detail="Cannot report yourself")
+    
+    report_doc = {
+        "reporter_id": current_user_id,
+        "reported_user_id": user_id,
+        "reason": report_data.get("reason"),
+        "notes": report_data.get("notes"),
+        "status": "pending",
+        "created_at": datetime.utcnow()
+    }
+    
+    await db.reports.insert_one(report_doc)
+    
+    return {"message": "Report submitted successfully"}
+
+# ==================== PRIVACY SETTINGS ====================
+
+@api_router.get("/privacy/settings")
+async def get_privacy_settings(current_user: dict = Depends(get_current_user)):
+    return {
+        "profile_visibility": current_user.get("profile_visibility", "public"),
+        "nearby_discoverable": current_user.get("nearby_discoverable", False),
+        "contacts_discoverable": current_user.get("contacts_discoverable", False),
+    }
+
+@api_router.put("/privacy/settings")
+async def update_privacy_settings(settings: dict, current_user: dict = Depends(get_current_user)):
+    update_fields = {}
+    
+    if "profile_visibility" in settings:
+        update_fields["profile_visibility"] = settings["profile_visibility"]
+    
+    if "nearby_discoverable" in settings:
+        update_fields["nearby_discoverable"] = settings["nearby_discoverable"]
+    
+    if "contacts_discoverable" in settings:
+        update_fields["contacts_discoverable"] = settings["contacts_discoverable"]
+    
+    if update_fields:
+        await db.users.update_one(
+            {"_id": current_user["_id"]},
+            {"$set": update_fields}
+        )
+    
+    return {"message": "Privacy settings updated successfully"}
 
 # ==================== PORTFOLIO GALLERY ====================
 
