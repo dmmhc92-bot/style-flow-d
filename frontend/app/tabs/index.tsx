@@ -87,13 +87,7 @@ export default function DashboardScreen() {
         {/* Quick Stats */}
         <View style={styles.statsGrid}>
           <StatCard
-            title="Today's Income"
-            value={`$${stats?.today_income?.toFixed(0) || 0}`}
-            icon="cash-outline"
-            color={Colors.success}
-          />
-          <StatCard
-            title="Appointments"
+            title="Today's Appts"
             value={stats?.today_appointments || 0}
             icon="calendar-outline"
             color={Colors.info}
@@ -110,23 +104,29 @@ export default function DashboardScreen() {
             icon="star-outline"
             color={Colors.vip}
           />
+          <StatCard
+            title="Followers"
+            value={stats?.followers_count || 0}
+            icon="heart-outline"
+            color={Colors.success}
+          />
         </View>
         
-        {/* Monthly Overview */}
+        {/* Weekly Overview */}
         <Card style={styles.overviewCard}>
-          <Text style={styles.sectionTitle}>This Month</Text>
+          <Text style={styles.sectionTitle}>This Week</Text>
           <View style={styles.overviewRow}>
-            <View style={styles.overviewItem}>
-              <Text style={styles.overviewLabel}>Revenue</Text>
-              <Text style={styles.overviewValue}>
-                ${stats?.month_income?.toFixed(0) || 0}
-              </Text>
-            </View>
-            <View style={styles.overviewDivider} />
             <View style={styles.overviewItem}>
               <Text style={styles.overviewLabel}>Appointments</Text>
               <Text style={styles.overviewValue}>
                 {stats?.week_appointments || 0}
+              </Text>
+            </View>
+            <View style={styles.overviewDivider} />
+            <View style={styles.overviewItem}>
+              <Text style={styles.overviewLabel}>New Clients</Text>
+              <Text style={styles.overviewValue}>
+                {stats?.new_clients_this_week || 0}
               </Text>
             </View>
           </View>

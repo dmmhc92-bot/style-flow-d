@@ -111,14 +111,8 @@ export default function MoreScreen() {
         
         {/* Business Tools */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Business Tools</Text>
+          <Text style={styles.sectionTitle}>Creative Tools</Text>
           <Card style={styles.menuCard}>
-            <MenuItem
-              icon="stats-chart"
-              title="Income & Analytics"
-              onPress={() => router.push('/settings/income')}
-            />
-            <View style={styles.divider} />
             <MenuItem
               icon="flask"
               title="Formula Vault"
@@ -135,12 +129,6 @@ export default function MoreScreen() {
               icon="briefcase"
               title="Portfolio"
               onPress={() => router.push('/portfolio')}
-            />
-            <View style={styles.divider} />
-            <MenuItem
-              icon="cart"
-              title="Retail & Upsells"
-              onPress={() => router.push('/settings/retail')}
             />
             <View style={styles.divider} />
             <MenuItem

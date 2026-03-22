@@ -1324,12 +1324,18 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
         "appointment_date": {"$gte": week_start}
     })
     
-    # Income stats
-    income = await db.income.find({"user_id": user_id}).to_list(1000)
-    today_income = sum(i["amount"] for i in income if i["date"] >= today_start)
-    week_income = sum(i["amount"] for i in income if i["date"] >= week_start)
-    month_start = today_start.replace(day=1)
-    month_income = sum(i["amount"] for i in income if i["date"] >= month_start)
+    # Followers count
+    from bson import ObjectId
+    followers_count = await db.connections.count_documents({
+        "following_id": ObjectId(current_user["_id"]),
+        "status": "active"
+    })
+    
+    # New clients this week
+    new_clients_this_week = await db.clients.count_documents({
+        "user_id": user_id,
+        "created_at": {"$gte": week_start}
+    })
     
     # Clients due for rebooking (no visit in last 60 days)
     sixty_days_ago = datetime.utcnow() - timedelta(days=60)
@@ -1343,9 +1349,8 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
         "vip_clients": vip_clients,
         "today_appointments": today_appointments,
         "week_appointments": week_appointments,
-        "today_income": today_income,
-        "week_income": week_income,
-        "month_income": month_income,
+        "followers_count": followers_count,
+        "new_clients_this_week": new_clients_this_week,
         "clients_due_rebooking": clients_due
     }
 
