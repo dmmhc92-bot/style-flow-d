@@ -439,6 +439,18 @@ frontend:
           agent: "testing"
           comment: "FIXED: Added missing follow/unfollow endpoints. POST /api/users/{id}/follow and DELETE /api/users/{id}/follow now working correctly. Follow state tracking and counts updating properly."
 
+  - task: "User Appeal System"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: "Implemented complete appeal system with: POST /api/appeals (user submits appeal), GET /api/appeals/me (user checks appeal status), GET /api/admin/appeals (admin views queue), GET /api/admin/appeals/stats (appeal statistics), POST /api/admin/appeals/{id}/action (approve/deny appeal), PATCH /api/admin/appeals/{id}/review (mark under review). Appeal approval restores user: suspensions→immediate restore to good_standing, bans→restore with warned status. All approved appeals set final_warning flag for faster escalation. Frontend: appeal.tsx form for users, moderation.tsx admin dashboard with tabs for Reports/Appeals."
+
 metadata:
   created_by: "main_agent"
   version: "1.0"
@@ -447,9 +459,7 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Frontend UI Testing"
-    - "End-to-End User Flow Testing"
-    - "Mobile Navigation Testing"
+    - "User Appeal System"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -467,3 +477,5 @@ agent_communication:
       message: "MOBILE UI FLOW TESTING COMPLETED: Comprehensive mobile-first UI testing performed on 390x844 viewport. ✅ Login screen with premium dark theme working ✅ Signup screen accessible with all form fields ✅ Mobile responsiveness confirmed across multiple viewports ✅ Premium design system consistent ✅ Navigation structure properly implemented ✅ All key UI elements accessible. LIMITATION: Full authentication flows require valid user credentials for complete end-to-end testing. Core UI functionality and mobile experience verified as working correctly."
     - agent: "testing"
       message: "MODERATION SYSTEM TESTING COMPLETED - 100% SUCCESS RATE (13/13 tests passed). Comprehensive testing of all moderation endpoints: ✅ Report system (POST /api/report) with reason validation ✅ Block/unblock system (POST/DELETE /api/block/{id}) ✅ Blocked users list (GET /api/blocked) ✅ Discover filtering (blocked users excluded) ✅ Profile access restrictions (403 for blocked users) ✅ Bidirectional blocking ✅ Auto-flagging after 3+ reports. All security measures working correctly. FIXED: Retail/No-Show DELETE endpoints now working. Backend moderation system production-ready."
+    - agent: "main"
+      message: "USER APPEAL SYSTEM IMPLEMENTED. Test the new appeal endpoints: 1) POST /api/appeals - submit appeal (requires suspended/banned user) 2) GET /api/appeals/me - check appeal status 3) GET /api/admin/appeals - admin queue view 4) GET /api/admin/appeals/stats - appeal statistics 5) POST /api/admin/appeals/{id}/action - approve/deny (with action='approve' or 'deny') 6) PATCH /api/admin/appeals/{id}/review - mark under review. Test flow: Create suspended user → submit appeal → admin approves → verify user restored with final_warning flag. For bans, verify user restored with 'warned' status. Admin credentials: admin@styleflow.com / Admin1234!"

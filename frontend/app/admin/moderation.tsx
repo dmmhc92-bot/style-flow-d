@@ -55,6 +55,33 @@ interface ModerationStats {
   banned_users: number;
 }
 
+interface AppealItem {
+  id: string;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  moderation_status: string;
+  original_reason: string;
+  suspended_until?: string;
+  appeal_reason: string;
+  additional_details?: string;
+  status: string;
+  admin_notes?: string;
+  decided_by?: string;
+  decision_at?: string;
+  created_at: string;
+}
+
+interface AppealStats {
+  pending: number;
+  under_review: number;
+  approved: number;
+  denied: number;
+  total: number;
+}
+
 interface Notification {
   id: string;
   type: string;
@@ -85,12 +112,16 @@ export default function AdminModerationScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
   
+  const [activeTab, setActiveTab] = useState<'reports' | 'appeals'>('reports');
   const [queue, setQueue] = useState<ReportedUser[]>([]);
+  const [appeals, setAppeals] = useState<AppealItem[]>([]);
+  const [appealStats, setAppealStats] = useState<AppealStats | null>(null);
   const [stats, setStats] = useState<ModerationStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
+  const [expandedAppeal, setExpandedAppeal] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [wsConnected, setWsConnected] = useState(false);
   
@@ -193,6 +224,27 @@ export default function AdminModerationScreen() {
         loadQueue();
         loadStats();
         break;
+      
+      case 'new_appeal':
+        // New appeal notification
+        const appealNotification: Notification = {
+          id: data.appeal_id,
+          type: 'new_appeal',
+          message: `New appeal from ${data.user.name} (${data.moderation_status})`,
+          timestamp: new Date(),
+          priority: 'high',
+        };
+        setNotifications(prev => [appealNotification, ...prev.slice(0, 9)]);
+        loadAppeals();
+        loadAppealStats();
+        startPulse();
+        break;
+      
+      case 'appeal_processed':
+        // Refresh appeals after processing
+        loadAppeals();
+        loadAppealStats();
+        break;
         
       case 'queue_update':
         setQueue(data.data);
@@ -205,6 +257,24 @@ export default function AdminModerationScreen() {
         break;
     }
   }, [startPulse]);
+  
+  const loadAppeals = async () => {
+    try {
+      const response = await api.get('/admin/appeals?status=pending');
+      setAppeals(response.data);
+    } catch (error) {
+      console.error('Failed to load appeals:', error);
+    }
+  };
+  
+  const loadAppealStats = async () => {
+    try {
+      const response = await api.get('/admin/appeals/stats');
+      setAppealStats(response.data);
+    } catch (error) {
+      console.error('Failed to load appeal stats:', error);
+    }
+  };
   
   const loadQueue = async () => {
     try {
@@ -229,13 +299,17 @@ export default function AdminModerationScreen() {
   
   const loadData = async () => {
     setLoading(true);
-    await Promise.all([loadQueue(), loadStats()]);
+    await Promise.all([loadQueue(), loadStats(), loadAppeals(), loadAppealStats()]);
     setLoading(false);
   };
   
   const handleRefresh = async () => {
     setRefreshing(true);
-    await loadData();
+    if (activeTab === 'reports') {
+      await Promise.all([loadQueue(), loadStats()]);
+    } else {
+      await Promise.all([loadAppeals(), loadAppealStats()]);
+    }
     setRefreshing(false);
   };
   
@@ -278,6 +352,49 @@ export default function AdminModerationScreen() {
               
               Alert.alert('Success', `Action '${action}' applied successfully.`);
               await loadData();
+            } catch (error: any) {
+              Alert.alert('Error', error.response?.data?.detail || 'Action failed');
+            } finally {
+              setActionLoading(null);
+            }
+          },
+        },
+      ]
+    );
+  };
+  
+  const handleAppealAction = async (appealId: string, action: 'approve' | 'deny') => {
+    const actionLabel = action === 'approve' ? 'Approve Appeal' : 'Deny Appeal';
+    const description = action === 'approve' 
+      ? 'This will restore the user\'s account. For bans, status will be set to "warned". A final_warning flag will be applied for faster escalation on repeat behavior.'
+      : 'This will deny the appeal. The user\'s current moderation status will remain in effect.';
+    
+    Alert.alert(
+      `Confirm: ${actionLabel}`,
+      description,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: action === 'approve' ? 'Approve' : 'Deny',
+          style: action === 'deny' ? 'destructive' : 'default',
+          onPress: async () => {
+            setActionLoading(appealId);
+            try {
+              const response = await api.post(`/admin/appeals/${appealId}/action`, {
+                action,
+                admin_notes: `${action === 'approve' ? 'Appeal approved' : 'Appeal denied'} via admin dashboard`,
+              });
+              
+              if (action === 'approve') {
+                Alert.alert(
+                  'Appeal Approved',
+                  `User restored with status: "${response.data.restored_status}". Final warning flag applied.`
+                );
+              } else {
+                Alert.alert('Appeal Denied', 'The appeal has been denied.');
+              }
+              
+              await Promise.all([loadAppeals(), loadAppealStats()]);
             } catch (error: any) {
               Alert.alert('Error', error.response?.data?.detail || 'Action failed');
             } finally {
@@ -428,6 +545,112 @@ export default function AdminModerationScreen() {
     );
   };
   
+  const renderAppealItem = (appeal: AppealItem) => {
+    const isExpanded = expandedAppeal === appeal.id;
+    const statusColor = appeal.moderation_status === 'banned' ? '#FF3B30' : 
+                       appeal.moderation_status === 'suspended' ? '#FF6B6B' : '#FF9500';
+    
+    return (
+      <Card key={appeal.id} style={styles.userCard}>
+        <TouchableOpacity
+          style={styles.userHeader}
+          onPress={() => setExpandedAppeal(isExpanded ? null : appeal.id)}
+        >
+          <View style={styles.userInfo}>
+            <View style={[styles.priorityBadge, { backgroundColor: statusColor + '20' }]}>
+              <Text style={[styles.priorityText, { color: statusColor }]}>
+                {appeal.moderation_status.toUpperCase()}
+              </Text>
+            </View>
+            <View style={styles.userDetails}>
+              <Text style={styles.userName}>{appeal.user.name}</Text>
+              <Text style={styles.userEmail}>{appeal.user.email}</Text>
+            </View>
+          </View>
+          <View style={styles.userStats}>
+            <View style={[styles.reportCountBadge, { backgroundColor: Colors.accent + '20' }]}>
+              <Ionicons name="hand-left" size={16} color={Colors.accent} />
+            </View>
+            <Ionicons
+              name={isExpanded ? 'chevron-up' : 'chevron-down'}
+              size={20}
+              color={Colors.textSecondary}
+            />
+          </View>
+        </TouchableOpacity>
+        
+        {isExpanded && (
+          <View style={styles.expandedContent}>
+            {/* Original Reason */}
+            <View style={styles.appealSection}>
+              <Text style={styles.appealSectionLabel}>Original Violation:</Text>
+              <Text style={styles.appealSectionText}>{appeal.original_reason}</Text>
+            </View>
+            
+            {/* Suspended Until (if applicable) */}
+            {appeal.moderation_status === 'suspended' && appeal.suspended_until && (
+              <View style={styles.appealSection}>
+                <Text style={styles.appealSectionLabel}>Suspended Until:</Text>
+                <Text style={styles.appealSectionText}>
+                  {new Date(appeal.suspended_until).toLocaleDateString()}
+                </Text>
+              </View>
+            )}
+            
+            {/* Appeal Reason */}
+            <View style={[styles.appealSection, styles.appealReasonBox]}>
+              <Text style={styles.appealSectionLabel}>User's Appeal:</Text>
+              <Text style={styles.appealReasonText}>{appeal.appeal_reason}</Text>
+              {appeal.additional_details && (
+                <Text style={styles.appealAdditionalText}>
+                  Additional: {appeal.additional_details}
+                </Text>
+              )}
+            </View>
+            
+            {/* Submitted Date */}
+            <Text style={styles.appealDate}>
+              Submitted: {new Date(appeal.created_at).toLocaleDateString()} at {new Date(appeal.created_at).toLocaleTimeString()}
+            </Text>
+            
+            {/* Action Buttons */}
+            <View style={styles.appealActions}>
+              <TouchableOpacity
+                style={[styles.appealActionBtn, styles.approveBtn]}
+                onPress={() => handleAppealAction(appeal.id, 'approve')}
+                disabled={actionLoading === appeal.id}
+              >
+                {actionLoading === appeal.id ? (
+                  <ActivityIndicator size="small" color={Colors.success} />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle" size={20} color={Colors.success} />
+                    <Text style={[styles.appealActionText, { color: Colors.success }]}>Approve</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.appealActionBtn, styles.denyBtn]}
+                onPress={() => handleAppealAction(appeal.id, 'deny')}
+                disabled={actionLoading === appeal.id}
+              >
+                {actionLoading === appeal.id ? (
+                  <ActivityIndicator size="small" color={Colors.error} />
+                ) : (
+                  <>
+                    <Ionicons name="close-circle" size={20} color={Colors.error} />
+                    <Text style={[styles.appealActionText, { color: Colors.error }]}>Deny</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+      </Card>
+    );
+  };
+  
   if (loading) {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
@@ -453,6 +676,47 @@ export default function AdminModerationScreen() {
         </View>
       </View>
       
+      {/* Tab Navigation */}
+      <View style={styles.tabContainer}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'reports' && styles.tabActive]}
+          onPress={() => setActiveTab('reports')}
+        >
+          <Ionicons 
+            name="alert-circle" 
+            size={18} 
+            color={activeTab === 'reports' ? Colors.accent : Colors.textSecondary} 
+          />
+          <Text style={[styles.tabText, activeTab === 'reports' && styles.tabTextActive]}>
+            Reports
+          </Text>
+          {stats && stats.pending_reports > 0 && (
+            <View style={styles.tabBadge}>
+              <Text style={styles.tabBadgeText}>{stats.pending_reports}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'appeals' && styles.tabActive]}
+          onPress={() => setActiveTab('appeals')}
+        >
+          <Ionicons 
+            name="hand-left" 
+            size={18} 
+            color={activeTab === 'appeals' ? Colors.accent : Colors.textSecondary} 
+          />
+          <Text style={[styles.tabText, activeTab === 'appeals' && styles.tabTextActive]}>
+            Appeals
+          </Text>
+          {appealStats && appealStats.pending > 0 && (
+            <View style={[styles.tabBadge, { backgroundColor: Colors.info }]}>
+              <Text style={styles.tabBadgeText}>{appealStats.pending}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      </View>
+      
       {/* Notifications Banner */}
       {notifications.length > 0 && (
         <Animated.View style={[styles.notificationBanner, { transform: [{ scale: pulseAnim }] }]}>
@@ -475,32 +739,65 @@ export default function AdminModerationScreen() {
           />
         }
       >
-        {/* Stats Overview */}
-        {stats && (
-          <View style={styles.statsContainer}>
-            {renderStatCard('Pending', stats.pending_reports, '#FF9500', 'alert-circle')}
-            {renderStatCard('High Priority', stats.high_priority_cases, '#FF3B30', 'flame')}
-            {renderStatCard('Flagged', stats.flagged_users, '#FFCC00', 'flag')}
-            {renderStatCard('Suspended', stats.suspended_users, '#5856D6', 'pause-circle')}
-          </View>
+        {activeTab === 'reports' ? (
+          <>
+            {/* Stats Overview */}
+            {stats && (
+              <View style={styles.statsContainer}>
+                {renderStatCard('Pending', stats.pending_reports, '#FF9500', 'alert-circle')}
+                {renderStatCard('High Priority', stats.high_priority_cases, '#FF3B30', 'flame')}
+                {renderStatCard('Flagged', stats.flagged_users, '#FFCC00', 'flag')}
+                {renderStatCard('Suspended', stats.suspended_users, '#5856D6', 'pause-circle')}
+              </View>
+            )}
+            
+            {/* Queue */}
+            <View style={styles.queueSection}>
+              <Text style={styles.sectionTitle}>
+                Report Queue ({queue.length})
+              </Text>
+              
+              {queue.length === 0 ? (
+                <Card style={styles.emptyCard}>
+                  <Ionicons name="checkmark-circle" size={48} color={Colors.success} />
+                  <Text style={styles.emptyTitle}>All Clear!</Text>
+                  <Text style={styles.emptyText}>No pending reports to review.</Text>
+                </Card>
+              ) : (
+                queue.map(renderReportedUser)
+              )}
+            </View>
+          </>
+        ) : (
+          <>
+            {/* Appeals Stats */}
+            {appealStats && (
+              <View style={styles.statsContainer}>
+                {renderStatCard('Pending', appealStats.pending, Colors.warning, 'time-outline')}
+                {renderStatCard('Under Review', appealStats.under_review, Colors.info, 'eye-outline')}
+                {renderStatCard('Approved', appealStats.approved, Colors.success, 'checkmark-circle')}
+                {renderStatCard('Denied', appealStats.denied, Colors.error, 'close-circle')}
+              </View>
+            )}
+            
+            {/* Appeals Queue */}
+            <View style={styles.queueSection}>
+              <Text style={styles.sectionTitle}>
+                Pending Appeals ({appeals.length})
+              </Text>
+              
+              {appeals.length === 0 ? (
+                <Card style={styles.emptyCard}>
+                  <Ionicons name="hand-left" size={48} color={Colors.textSecondary} />
+                  <Text style={styles.emptyTitle}>No Pending Appeals</Text>
+                  <Text style={styles.emptyText}>There are no appeals waiting for review.</Text>
+                </Card>
+              ) : (
+                appeals.map(renderAppealItem)
+              )}
+            </View>
+          </>
         )}
-        
-        {/* Queue */}
-        <View style={styles.queueSection}>
-          <Text style={styles.sectionTitle}>
-            Report Queue ({queue.length})
-          </Text>
-          
-          {queue.length === 0 ? (
-            <Card style={styles.emptyCard}>
-              <Ionicons name="checkmark-circle" size={48} color={Colors.success} />
-              <Text style={styles.emptyTitle}>All Clear!</Text>
-              <Text style={styles.emptyText}>No pending reports to review.</Text>
-            </Card>
-          ) : (
-            queue.map(renderReportedUser)
-          )}
-        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -787,5 +1084,111 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: Typography.body,
     color: Colors.textSecondary,
+  },
+  // Tab Navigation Styles
+  tabContainer: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  tab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.md,
+    gap: Spacing.xs,
+  },
+  tabActive: {
+    borderBottomWidth: 2,
+    borderBottomColor: Colors.accent,
+  },
+  tabText: {
+    fontSize: Typography.body,
+    color: Colors.textSecondary,
+    fontWeight: Typography.medium,
+  },
+  tabTextActive: {
+    color: Colors.accent,
+    fontWeight: Typography.semibold,
+  },
+  tabBadge: {
+    backgroundColor: Colors.error,
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+    marginLeft: 4,
+  },
+  tabBadgeText: {
+    fontSize: 11,
+    fontWeight: Typography.bold,
+    color: '#FFFFFF',
+  },
+  // Appeal Styles
+  appealSection: {
+    marginBottom: Spacing.md,
+  },
+  appealSectionLabel: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.xs,
+  },
+  appealSectionText: {
+    fontSize: Typography.body,
+    color: Colors.text,
+  },
+  appealReasonBox: {
+    backgroundColor: Colors.backgroundSecondary,
+    padding: Spacing.md,
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.accent,
+  },
+  appealReasonText: {
+    fontSize: Typography.body,
+    color: Colors.text,
+    lineHeight: 22,
+    fontStyle: 'italic',
+  },
+  appealAdditionalText: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
+    marginTop: Spacing.sm,
+    fontStyle: 'italic',
+  },
+  appealDate: {
+    fontSize: Typography.caption,
+    color: Colors.textLight,
+    marginBottom: Spacing.md,
+  },
+  appealActions: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+  },
+  appealActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.md,
+    borderRadius: 8,
+    gap: Spacing.xs,
+  },
+  approveBtn: {
+    backgroundColor: Colors.success + '20',
+    borderWidth: 1,
+    borderColor: Colors.success + '40',
+  },
+  denyBtn: {
+    backgroundColor: Colors.error + '20',
+    borderWidth: 1,
+    borderColor: Colors.error + '40',
+  },
+  appealActionText: {
+    fontSize: Typography.body,
+    fontWeight: Typography.semibold,
   },
 });

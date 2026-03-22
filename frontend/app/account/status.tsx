@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -78,7 +77,7 @@ export default function AccountStatusScreen() {
   };
   
   const handleAppeal = () => {
-    Linking.openURL('mailto:appeals@styleflow.app?subject=Account Appeal Request');
+    router.push('/account/appeal');
   };
   
   const handleViewGuidelines = () => {

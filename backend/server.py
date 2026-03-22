@@ -1676,6 +1676,7 @@ async def process_appeal(
         raise HTTPException(status_code=400, detail="This appeal has already been processed")
     
     user_id = appeal["user_id"]
+    original_status = appeal.get("moderation_status")
     
     # Update appeal status
     new_status = "approved" if action_data.action == "approve" else "denied"
@@ -1692,32 +1693,53 @@ async def process_appeal(
         }
     )
     
-    # If approved, restore user's account
+    # If approved, restore user's account based on original status
     if action_data.action == "approve":
+        # Determine restored status based on original moderation status
+        # For bans: restore with "warned" status (not fully clean)
+        # For suspensions: restore immediately with "good_standing"
+        # For all approved appeals: set final_warning flag for faster escalation
+        
+        if original_status == "banned":
+            # Ban appeal approved → restore with "warned" status
+            restored_status = "warned"
+        else:
+            # Suspension/restriction appeal → restore to good standing
+            restored_status = "good_standing"
+        
         await db.users.update_one(
             {"_id": ObjectId(user_id)},
             {
                 "$set": {
-                    "moderation_status": "good_standing",
+                    "moderation_status": restored_status,
                     "flagged": False,
-                    "appeal_approved_at": datetime.utcnow()
+                    "appeal_approved_at": datetime.utcnow(),
+                    # CRITICAL: Set final_warning flag for faster escalation on repeat behavior
+                    "final_warning": True,
+                    "final_warning_at": datetime.utcnow(),
+                    "final_warning_reason": f"Restored via appeal from {original_status}. Next violation will escalate faster."
                 },
                 "$unset": {
                     "suspended_until": "",
                     "suspension_reason": "",
                     "ban_reason": "",
                     "banned_at": "",
-                    "suspended_at": ""
+                    "suspended_at": "",
+                    "restricted_at": "",
+                    "restriction_reason": ""
                 }
             }
         )
         
-        # Log the action
+        # Log the action with detailed info
         await db.moderation_log.insert_one({
             "admin_id": str(current_user["_id"]),
             "target_user_id": user_id,
             "action": "appeal_approved",
             "appeal_id": appeal_id,
+            "original_status": original_status,
+            "restored_status": restored_status,
+            "final_warning_applied": True,
             "notes": action_data.admin_notes,
             "created_at": datetime.utcnow()
         })
@@ -1728,6 +1750,7 @@ async def process_appeal(
             "target_user_id": user_id,
             "action": "appeal_denied",
             "appeal_id": appeal_id,
+            "original_status": original_status,
             "notes": action_data.admin_notes,
             "created_at": datetime.utcnow()
         })
@@ -1737,6 +1760,7 @@ async def process_appeal(
         "type": "appeal_processed",
         "appeal_id": appeal_id,
         "action": action_data.action,
+        "original_status": original_status,
         "admin_name": current_user.get("full_name"),
         "created_at": datetime.utcnow().isoformat()
     }
@@ -1744,7 +1768,9 @@ async def process_appeal(
     
     return {
         "message": f"Appeal {action_data.action}d successfully",
-        "appeal_status": new_status
+        "appeal_status": new_status,
+        "restored_status": restored_status if action_data.action == "approve" else None,
+        "final_warning_applied": action_data.action == "approve"
     }
 
 @api_router.patch("/admin/appeals/{appeal_id}/review")
