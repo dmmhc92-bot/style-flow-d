@@ -140,7 +140,7 @@ export default function SettingsScreen() {
       </View>
       <View style={styles.rowRight}>
         {rightText && <Text style={styles.rightText}>{rightText}</Text>}
-        <Ionicons name=\"chevron-forward\" size={20} color={Colors.textSecondary} />
+        <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
       </View>
     </TouchableOpacity>
   );

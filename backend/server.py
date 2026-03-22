@@ -56,8 +56,13 @@ class UserProfile(BaseModel):
     business_name: Optional[str] = None
     bio: Optional[str] = None
     specialties: Optional[str] = None
-    salon_info: Optional[str] = None
+    salon_name: Optional[str] = None
+    city: Optional[str] = None
     profile_photo: Optional[str] = None
+    instagram_handle: Optional[str] = None
+    tiktok_handle: Optional[str] = None
+    website_url: Optional[str] = None
+    profile_visibility: str = "public"  # public, private
     created_at: datetime
 
 class PasswordReset(BaseModel):
