@@ -447,6 +447,58 @@ async def get_user_profile(user_id: str, current_user: dict = Depends(get_curren
         "following_count": following_count,
     }
 
+# ==================== FOLLOW/UNFOLLOW ENDPOINTS ====================
+
+@api_router.post("/users/{user_id}/follow")
+async def follow_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    current_user_id = str(current_user["_id"])
+    
+    if current_user_id == user_id:
+        raise HTTPException(status_code=400, detail="Cannot follow yourself")
+    
+    # Check if target user exists
+    from bson import ObjectId
+    try:
+        target_user = await db.users.find_one({"_id": ObjectId(user_id)})
+    except:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Check if already following
+    existing_follow = await db.follows.find_one({
+        "follower_id": current_user_id,
+        "following_id": user_id
+    })
+    
+    if existing_follow:
+        raise HTTPException(status_code=400, detail="Already following this user")
+    
+    # Create follow relationship
+    await db.follows.insert_one({
+        "follower_id": current_user_id,
+        "following_id": user_id,
+        "created_at": datetime.utcnow()
+    })
+    
+    return {"message": "User followed successfully"}
+
+@api_router.delete("/users/{user_id}/follow")
+async def unfollow_user(user_id: str, current_user: dict = Depends(get_current_user)):
+    current_user_id = str(current_user["_id"])
+    
+    # Remove follow relationship
+    result = await db.follows.delete_one({
+        "follower_id": current_user_id,
+        "following_id": user_id
+    })
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not following this user")
+    
+    return {"message": "User unfollowed successfully"}
+
 # ==================== CONNECTION MANAGEMENT ====================
 
 @api_router.post("/connections/{user_id}")
