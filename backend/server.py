@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, status
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -8,10 +8,12 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
-from typing import List, Optional
+from typing import List, Optional, Dict, Set
 from datetime import datetime, timedelta
 import jwt
 import bcrypt
+import json
+import asyncio
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 ROOT_DIR = Path(__file__).parent
@@ -38,6 +40,54 @@ api_router = APIRouter(prefix="/api")
 
 # Security
 security = HTTPBearer()
+
+# ==================== WEBSOCKET CONNECTION MANAGER ====================
+
+class AdminConnectionManager:
+    """Manages WebSocket connections for admin real-time updates"""
+    
+    def __init__(self):
+        self.active_connections: Dict[str, WebSocket] = {}
+        self.admin_users: Set[str] = set()
+    
+    async def connect(self, websocket: WebSocket, admin_id: str):
+        await websocket.accept()
+        self.active_connections[admin_id] = websocket
+        self.admin_users.add(admin_id)
+        logging.info(f"Admin {admin_id} connected to moderation websocket")
+    
+    def disconnect(self, admin_id: str):
+        if admin_id in self.active_connections:
+            del self.active_connections[admin_id]
+        if admin_id in self.admin_users:
+            self.admin_users.discard(admin_id)
+        logging.info(f"Admin {admin_id} disconnected from moderation websocket")
+    
+    async def broadcast_to_admins(self, message: dict):
+        """Send message to all connected admins"""
+        disconnected = []
+        for admin_id, connection in self.active_connections.items():
+            try:
+                await connection.send_json(message)
+            except Exception as e:
+                logging.error(f"Failed to send to admin {admin_id}: {e}")
+                disconnected.append(admin_id)
+        
+        # Clean up disconnected
+        for admin_id in disconnected:
+            self.disconnect(admin_id)
+    
+    async def send_to_admin(self, admin_id: str, message: dict):
+        """Send message to specific admin"""
+        if admin_id in self.active_connections:
+            try:
+                await self.active_connections[admin_id].send_json(message)
+            except Exception as e:
+                logging.error(f"Failed to send to admin {admin_id}: {e}")
+                self.disconnect(admin_id)
+
+# Global connection manager instance
+admin_manager = AdminConnectionManager()
 
 # ==================== MODELS ====================
 
@@ -400,7 +450,8 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         "tiktok_handle": current_user.get("tiktok_handle"),
         "website_url": current_user.get("website_url"),
         "profile_visibility": current_user.get("profile_visibility", "public"),
-        "subscription_status": current_user.get("subscription_status", "free")
+        "subscription_status": current_user.get("subscription_status", "free"),
+        "is_admin": current_user.get("is_admin", False)
     }
 
 @api_router.put("/auth/profile")
@@ -768,6 +819,7 @@ async def create_report(report_data: ReportCreate, current_user: dict = Depends(
     }
     
     result = await db.reports.insert_one(report_doc)
+    report_id = str(result.inserted_id)
     
     # Update report count on the reported user
     await db.users.update_one(
@@ -775,19 +827,53 @@ async def create_report(report_data: ReportCreate, current_user: dict = Depends(
         {"$inc": {"report_count": 1}}
     )
     
-    # Auto-flag if user has 3+ pending reports
+    # Get total pending report count for this user/content
     report_count = await db.reports.count_documents({
         "reported_user_id": report_data.reported_user_id,
         "status": "pending"
     })
     
-    if report_count >= 3:
+    # Auto-flag if user has 3+ pending reports
+    is_flagged = report_count >= 3
+    if is_flagged:
         await db.users.update_one(
             {"_id": ObjectId(report_data.reported_user_id)},
             {"$set": {"flagged": True, "flagged_at": datetime.utcnow()}}
         )
     
-    return {"message": "Report submitted successfully", "report_id": str(result.inserted_id)}
+    # Get reporter and reported user info for notification
+    reporter = await db.users.find_one({"_id": current_user["_id"]})
+    reported_user = await db.users.find_one({"_id": ObjectId(report_data.reported_user_id)})
+    
+    # Calculate priority (higher = more reports)
+    priority = "high" if report_count >= 5 else "medium" if report_count >= 3 else "normal"
+    
+    # Broadcast real-time notification to all connected admins
+    notification = {
+        "type": "new_report",
+        "report_id": report_id,
+        "reporter": {
+            "id": current_user_id,
+            "name": reporter.get("full_name") if reporter else "Unknown"
+        },
+        "reported_user": {
+            "id": report_data.reported_user_id,
+            "name": reported_user.get("full_name") if reported_user else "Unknown",
+            "email": reported_user.get("email") if reported_user else None
+        },
+        "content_type": report_data.content_type,
+        "reason": report_data.reason,
+        "details": report_data.details,
+        "report_count": report_count,
+        "priority": priority,
+        "is_flagged": is_flagged,
+        "created_at": datetime.utcnow().isoformat()
+    }
+    
+    # Send to admins asynchronously
+    asyncio.create_task(admin_manager.broadcast_to_admins(notification))
+    
+    return {"message": "Report submitted successfully", "report_id": report_id}
 
 @api_router.post("/report/{user_id}")
 async def report_user(user_id: str, report_data: dict, current_user: dict = Depends(get_current_user)):
@@ -819,14 +905,152 @@ async def check_admin(current_user: dict):
     if not current_user.get("is_admin", False):
         raise HTTPException(status_code=403, detail="Admin access required")
 
+# WebSocket endpoint for admin real-time notifications
+@app.websocket("/ws/admin/moderation")
+async def admin_moderation_websocket(websocket: WebSocket):
+    """WebSocket connection for real-time admin moderation updates"""
+    # Authenticate via query param token
+    token = websocket.query_params.get("token")
+    
+    if not token:
+        await websocket.close(code=4001, reason="Token required")
+        return
+    
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user_email = payload.get("sub")
+        user = await db.users.find_one({"email": user_email})
+        
+        if not user or not user.get("is_admin", False):
+            await websocket.close(code=4003, reason="Admin access required")
+            return
+        
+        admin_id = str(user["_id"])
+        await admin_manager.connect(websocket, admin_id)
+        
+        # Send initial stats on connect
+        pending_count = await db.reports.count_documents({"status": "pending"})
+        flagged_count = await db.users.count_documents({"flagged": True})
+        
+        await websocket.send_json({
+            "type": "connected",
+            "admin_id": admin_id,
+            "stats": {
+                "pending_reports": pending_count,
+                "flagged_users": flagged_count
+            }
+        })
+        
+        # Keep connection alive and listen for commands
+        while True:
+            try:
+                data = await websocket.receive_json()
+                
+                # Handle ping/pong for keep-alive
+                if data.get("type") == "ping":
+                    await websocket.send_json({"type": "pong"})
+                
+                # Handle request for queue refresh
+                elif data.get("type") == "refresh_queue":
+                    queue = await get_grouped_moderation_queue_data()
+                    await websocket.send_json({
+                        "type": "queue_update",
+                        "data": queue
+                    })
+                    
+            except WebSocketDisconnect:
+                admin_manager.disconnect(admin_id)
+                break
+            except Exception as e:
+                logging.error(f"WebSocket error: {e}")
+                break
+                
+    except jwt.ExpiredSignatureError:
+        await websocket.close(code=4002, reason="Token expired")
+    except jwt.InvalidTokenError:
+        await websocket.close(code=4001, reason="Invalid token")
+    except Exception as e:
+        logging.error(f"WebSocket connection error: {e}")
+        await websocket.close(code=4000, reason="Connection error")
+
+async def get_grouped_moderation_queue_data():
+    """Get moderation queue grouped by user with priority sorting"""
+    # Get all pending reports
+    reports = await db.reports.find({"status": "pending"}).to_list(500)
+    
+    # Group by reported user
+    user_reports: Dict[str, list] = {}
+    for report in reports:
+        user_id = report["reported_user_id"]
+        if user_id not in user_reports:
+            user_reports[user_id] = []
+        user_reports[user_id].append(report)
+    
+    result = []
+    for user_id, user_report_list in user_reports.items():
+        # Get user info
+        reported_user = await db.users.find_one({"_id": ObjectId(user_id)})
+        
+        # Calculate priority based on report count
+        report_count = len(user_report_list)
+        priority = "critical" if report_count >= 10 else "high" if report_count >= 5 else "medium" if report_count >= 3 else "normal"
+        
+        # Get unique reasons
+        reasons = list(set(r.get("reason") for r in user_report_list))
+        
+        # Get latest report date
+        latest_report = max(user_report_list, key=lambda x: x.get("created_at", datetime.min))
+        
+        # Get all report details
+        report_details = []
+        for r in sorted(user_report_list, key=lambda x: x.get("created_at", datetime.min), reverse=True)[:10]:
+            reporter = await db.users.find_one({"_id": ObjectId(r["reporter_id"])})
+            report_details.append({
+                "id": str(r["_id"]),
+                "reporter_name": reporter.get("full_name") if reporter else "Unknown",
+                "reason": r.get("reason"),
+                "details": r.get("details"),
+                "content_type": r.get("content_type"),
+                "content_id": r.get("content_id"),
+                "created_at": r.get("created_at").isoformat() if r.get("created_at") else None
+            })
+        
+        result.append({
+            "user_id": user_id,
+            "user": {
+                "id": user_id,
+                "full_name": reported_user.get("full_name") if reported_user else "Unknown",
+                "email": reported_user.get("email") if reported_user else None,
+                "profile_photo": reported_user.get("profile_photo") if reported_user else None,
+                "moderation_status": reported_user.get("moderation_status", "good_standing") if reported_user else None,
+                "warnings_count": reported_user.get("warnings_count", 0) if reported_user else 0,
+                "flagged": reported_user.get("flagged", False) if reported_user else False
+            },
+            "report_count": report_count,
+            "priority": priority,
+            "reasons": reasons,
+            "reports": report_details,
+            "latest_report_at": latest_report.get("created_at").isoformat() if latest_report.get("created_at") else None
+        })
+    
+    # Sort by priority (critical > high > medium > normal) then by report count
+    priority_order = {"critical": 0, "high": 1, "medium": 2, "normal": 3}
+    result.sort(key=lambda x: (priority_order.get(x["priority"], 4), -x["report_count"]))
+    
+    return result
+
 @api_router.get("/admin/moderation/queue")
 async def get_moderation_queue(
     status: Optional[str] = "pending",
+    grouped: bool = True,
     current_user: dict = Depends(get_current_user)
 ):
     await check_admin(current_user)
     
-    # Get all reports with the specified status
+    if grouped:
+        return await get_grouped_moderation_queue_data()
+    
+    # Legacy non-grouped view
     query = {}
     if status:
         query["status"] = status
@@ -835,16 +1059,11 @@ async def get_moderation_queue(
     
     result = []
     for report in reports:
-        # Get reporter info
         reporter = await db.users.find_one({"_id": ObjectId(report["reporter_id"])})
-        # Get reported user info
         reported_user = await db.users.find_one({"_id": ObjectId(report["reported_user_id"])})
         
-        # Get total report count for this user/content
         report_count = await db.reports.count_documents({
             "reported_user_id": report["reported_user_id"],
-            "content_type": report.get("content_type"),
-            "content_id": report.get("content_id"),
             "status": "pending"
         })
         
@@ -871,6 +1090,45 @@ async def get_moderation_queue(
         })
     
     return result
+
+@api_router.get("/admin/moderation/stats")
+async def get_moderation_stats(current_user: dict = Depends(get_current_user)):
+    """Get real-time moderation statistics"""
+    await check_admin(current_user)
+    
+    pending_reports = await db.reports.count_documents({"status": "pending"})
+    flagged_users = await db.users.count_documents({"flagged": True})
+    warned_users = await db.users.count_documents({"moderation_status": "warned"})
+    restricted_users = await db.users.count_documents({"moderation_status": "restricted"})
+    suspended_users = await db.users.count_documents({"moderation_status": "suspended"})
+    banned_users = await db.users.count_documents({"moderation_status": "banned"})
+    
+    # Reports by reason
+    pipeline = [
+        {"$match": {"status": "pending"}},
+        {"$group": {"_id": "$reason", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}
+    ]
+    reason_breakdown = await db.reports.aggregate(pipeline).to_list(20)
+    
+    # High priority cases (5+ reports)
+    high_priority_pipeline = [
+        {"$match": {"status": "pending"}},
+        {"$group": {"_id": "$reported_user_id", "count": {"$sum": 1}}},
+        {"$match": {"count": {"$gte": 5}}}
+    ]
+    high_priority_count = len(await db.reports.aggregate(high_priority_pipeline).to_list(100))
+    
+    return {
+        "pending_reports": pending_reports,
+        "flagged_users": flagged_users,
+        "warned_users": warned_users,
+        "restricted_users": restricted_users,
+        "suspended_users": suspended_users,
+        "banned_users": banned_users,
+        "high_priority_cases": high_priority_count,
+        "reason_breakdown": {r["_id"]: r["count"] for r in reason_breakdown}
+    }
 
 @api_router.get("/admin/moderation/flagged")
 async def get_flagged_users(current_user: dict = Depends(get_current_user)):
@@ -1021,7 +1279,145 @@ async def take_moderation_action(
         "created_at": datetime.utcnow()
     })
     
+    # Broadcast action update to all connected admins
+    reported_user = await db.users.find_one({"_id": ObjectId(reported_user_id)})
+    action_notification = {
+        "type": "action_taken",
+        "report_id": report_id,
+        "action": action_data.action,
+        "reason": action_data.reason,
+        "admin_id": str(current_user["_id"]),
+        "admin_name": current_user.get("full_name", "Admin"),
+        "target_user": {
+            "id": reported_user_id,
+            "name": reported_user.get("full_name") if reported_user else "Unknown"
+        },
+        "created_at": datetime.utcnow().isoformat()
+    }
+    asyncio.create_task(admin_manager.broadcast_to_admins(action_notification))
+    
     return {"message": f"Action '{action_data.action}' applied successfully"}
+
+@api_router.post("/admin/moderation/action/user/{user_id}")
+async def take_bulk_moderation_action(
+    user_id: str,
+    action_data: ModerationAction,
+    current_user: dict = Depends(get_current_user)
+):
+    """Take action on all pending reports for a specific user"""
+    await check_admin(current_user)
+    
+    if action_data.action not in MODERATION_ACTIONS:
+        raise HTTPException(status_code=400, detail="Invalid moderation action")
+    
+    # Get all pending reports for this user
+    pending_reports = await db.reports.find({
+        "reported_user_id": user_id,
+        "status": "pending"
+    }).to_list(500)
+    
+    if not pending_reports:
+        raise HTTPException(status_code=404, detail="No pending reports found for this user")
+    
+    # Update all reports status
+    new_status = "actioned" if action_data.action != "dismiss" else "dismissed"
+    await db.reports.update_many(
+        {"reported_user_id": user_id, "status": "pending"},
+        {
+            "$set": {
+                "status": new_status,
+                "actioned_by": str(current_user["_id"]),
+                "actioned_at": datetime.utcnow(),
+                "action_taken": action_data.action,
+                "action_reason": action_data.reason
+            }
+        }
+    )
+    
+    # Apply action to user (same logic as single report)
+    user_update = {}
+    
+    if action_data.action == "dismiss":
+        await db.users.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {"flagged": False}}
+        )
+    elif action_data.action == "warn":
+        user_update = {
+            "$inc": {"warnings_count": 1},
+            "$set": {
+                "last_warning_at": datetime.utcnow(),
+                "last_warning_reason": action_data.reason
+            }
+        }
+        user = await db.users.find_one({"_id": ObjectId(user_id)})
+        if user and user.get("warnings_count", 0) >= 2:
+            user_update["$set"]["moderation_status"] = "restricted"
+    elif action_data.action == "restrict":
+        user_update = {
+            "$set": {
+                "moderation_status": "restricted",
+                "restricted_at": datetime.utcnow(),
+                "restriction_reason": action_data.reason,
+                "flagged": False
+            }
+        }
+    elif action_data.action == "suspend":
+        duration_days = action_data.duration_days or 7
+        suspended_until = datetime.utcnow() + timedelta(days=duration_days)
+        user_update = {
+            "$set": {
+                "moderation_status": "suspended",
+                "suspended_at": datetime.utcnow(),
+                "suspended_until": suspended_until,
+                "suspension_reason": action_data.reason,
+                "flagged": False
+            }
+        }
+    elif action_data.action == "ban":
+        user_update = {
+            "$set": {
+                "moderation_status": "banned",
+                "banned_at": datetime.utcnow(),
+                "ban_reason": action_data.reason,
+                "flagged": False
+            }
+        }
+    
+    if user_update:
+        await db.users.update_one({"_id": ObjectId(user_id)}, user_update)
+    
+    # Log the bulk action
+    await db.moderation_log.insert_one({
+        "admin_id": str(current_user["_id"]),
+        "target_user_id": user_id,
+        "action": action_data.action,
+        "reason": action_data.reason,
+        "reports_actioned": len(pending_reports),
+        "is_bulk": True,
+        "created_at": datetime.utcnow()
+    })
+    
+    # Broadcast to admins
+    reported_user = await db.users.find_one({"_id": ObjectId(user_id)})
+    bulk_notification = {
+        "type": "bulk_action_taken",
+        "action": action_data.action,
+        "reason": action_data.reason,
+        "admin_name": current_user.get("full_name", "Admin"),
+        "target_user": {
+            "id": user_id,
+            "name": reported_user.get("full_name") if reported_user else "Unknown"
+        },
+        "reports_actioned": len(pending_reports),
+        "created_at": datetime.utcnow().isoformat()
+    }
+    asyncio.create_task(admin_manager.broadcast_to_admins(bulk_notification))
+    
+    return {
+        "message": f"Action '{action_data.action}' applied to {len(pending_reports)} reports",
+        "reports_actioned": len(pending_reports)
+    }
 
 @api_router.get("/admin/moderation/user/{user_id}")
 async def get_user_moderation_history(

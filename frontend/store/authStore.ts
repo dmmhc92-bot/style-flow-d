@@ -17,6 +17,7 @@ interface User {
   website_url?: string;
   profile_visibility?: string;
   subscription_status?: string;
+  is_admin?: boolean;
 }
 
 interface AuthState {

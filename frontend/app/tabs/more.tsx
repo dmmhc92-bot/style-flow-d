@@ -208,6 +208,21 @@ export default function MoreScreen() {
           </Card>
         </View>
         
+        {/* Admin Section - Only shown to admins */}
+        {user?.is_admin && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Admin</Text>
+            <Card style={[styles.menuCard, styles.adminCard]}>
+              <MenuItem
+                icon="shield-half"
+                title="Moderation Dashboard"
+                onPress={() => router.push('/admin/moderation')}
+                color={Colors.accent}
+              />
+            </Card>
+          </View>
+        )}
+        
         {/* Account Actions */}
         <View style={styles.section}>
           <Card style={styles.menuCard}>
@@ -302,6 +317,11 @@ const styles = StyleSheet.create({
   },
   menuCard: {
     marginHorizontal: Spacing.screenPadding,
+  },
+  adminCard: {
+    borderWidth: 1,
+    borderColor: Colors.accent + '40',
+    backgroundColor: Colors.accent + '05',
   },
   menuItem: {
     flexDirection: 'row',
