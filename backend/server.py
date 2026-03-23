@@ -40,9 +40,9 @@ resend.api_key = RESEND_API_KEY
 
 # App deep link scheme
 APP_SCHEME = "styleflow"
-APP_DOMAIN = "homestyleflowapp.com"
+APP_DOMAIN = os.environ.get('APP_DOMAIN', 'homestyleflowapp.com')
 APP_BUNDLE_ID = "com.styleflow.app"
-APP_TEAM_ID = "NTZB3ZFKXK"  # Apple Developer Team ID
+APP_TEAM_ID = os.environ.get('APPLE_TEAM_ID', 'NTZB3ZFKXK')
 
 # Create the main app without a prefix
 app = FastAPI()

@@ -1,15 +1,20 @@
 // Centralized app configuration
+// Legal URLs use in-app screens served by the backend
+const APP_DOMAIN = process.env.EXPO_PUBLIC_APP_DOMAIN || 'homestyleflowapp.com';
+
 export const AppConfig = {
   app: {
     name: 'StyleFlow',
     version: '1.0.0',
+    domain: APP_DOMAIN,
   },
   
   legal: {
-    privacyPolicyUrl: 'https://styleflow.app/privacy',
-    termsOfServiceUrl: 'https://styleflow.app/terms',
-    supportUrl: 'https://styleflow.app/support',
-    supportEmail: 'support@styleflow.app',
+    // These are in-app screens, not external URLs
+    privacyPolicyPath: '/privacy',
+    termsOfServicePath: '/terms',
+    supportPath: '/support',
+    supportEmail: `support@${APP_DOMAIN}`,
   },
   
   subscription: {
