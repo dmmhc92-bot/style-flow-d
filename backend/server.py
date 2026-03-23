@@ -41,6 +41,25 @@ api_router = APIRouter(prefix="/api")
 # Security
 security = HTTPBearer()
 
+# ==================== HEALTH CHECK ====================
+
+@api_router.get("/health")
+async def health_check():
+    """Health check endpoint for deployment monitoring"""
+    try:
+        # Check MongoDB connection
+        await db.command("ping")
+        db_status = "healthy"
+    except Exception:
+        db_status = "unhealthy"
+    
+    return {
+        "status": "healthy" if db_status == "healthy" else "degraded",
+        "service": "styleflow-api",
+        "version": "1.0.0",
+        "database": db_status
+    }
+
 # ==================== WEBSOCKET CONNECTION MANAGER ====================
 
 class AdminConnectionManager:
