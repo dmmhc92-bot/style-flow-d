@@ -41,6 +41,8 @@ resend.api_key = RESEND_API_KEY
 # App deep link scheme
 APP_SCHEME = "styleflow"
 APP_DOMAIN = "homestyleflowapp.com"
+APP_BUNDLE_ID = "com.styleflow.app"
+APP_TEAM_ID = "YOUR_TEAM_ID"  # Replace with actual Apple Team ID when deploying
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -50,6 +52,75 @@ api_router = APIRouter(prefix="/api")
 
 # Security
 security = HTTPBearer()
+
+# ==================== APPLE APP SITE ASSOCIATION (iOS Universal Links) ====================
+
+from fastapi.responses import JSONResponse
+
+@app.get("/.well-known/apple-app-site-association")
+async def apple_app_site_association():
+    """
+    Apple App Site Association file for iOS Universal Links.
+    This enables the reset password link to open directly in the app.
+    
+    IMPORTANT: For production, replace APP_TEAM_ID with your actual Apple Developer Team ID.
+    The Team ID can be found in your Apple Developer account under Membership.
+    """
+    aasa = {
+        "applinks": {
+            "apps": [],
+            "details": [
+                {
+                    "appIDs": [f"{APP_TEAM_ID}.{APP_BUNDLE_ID}"],
+                    "paths": [
+                        "/reset-password",
+                        "/reset-password/*",
+                        "/reset-password?*"
+                    ],
+                    "components": [
+                        {
+                            "/": "/reset-password",
+                            "?": {"token": "?*"}
+                        }
+                    ]
+                }
+            ]
+        },
+        "webcredentials": {
+            "apps": [f"{APP_TEAM_ID}.{APP_BUNDLE_ID}"]
+        }
+    }
+    
+    return JSONResponse(
+        content=aasa,
+        media_type="application/json",
+        headers={
+            "Content-Type": "application/json"
+        }
+    )
+
+@app.get("/.well-known/assetlinks.json")
+async def android_asset_links():
+    """
+    Android Asset Links for App Links (Android equivalent of Universal Links).
+    """
+    asset_links = [
+        {
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": "com.styleflow.app",
+                "sha256_cert_fingerprints": [
+                    "YOUR_SHA256_FINGERPRINT"  # Replace with actual SHA256 from your signing key
+                ]
+            }
+        }
+    ]
+    
+    return JSONResponse(
+        content=asset_links,
+        media_type="application/json"
+    )
 
 # ==================== HEALTH CHECK ====================
 
