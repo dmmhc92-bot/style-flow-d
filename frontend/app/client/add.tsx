@@ -86,9 +86,8 @@ export default function AddClientScreen() {
         is_vip: isVip,
       });
       
-      // Navigate back immediately after successful save
-      // The clients list will refresh via useFocusEffect
-      router.back();
+      // Navigate to clients list after successful save
+      router.replace('/tabs/clients');
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to add client');
       setLoading(false);
