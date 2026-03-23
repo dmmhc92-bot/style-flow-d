@@ -42,7 +42,7 @@ resend.api_key = RESEND_API_KEY
 APP_SCHEME = "styleflow"
 APP_DOMAIN = "homestyleflowapp.com"
 APP_BUNDLE_ID = "com.styleflow.app"
-APP_TEAM_ID = "YOUR_TEAM_ID"  # Replace with actual Apple Team ID when deploying
+APP_TEAM_ID = "NTZB3ZFKXK"  # Apple Developer Team ID
 
 # Create the main app without a prefix
 app = FastAPI()
