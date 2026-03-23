@@ -109,6 +109,24 @@ export default function MoreScreen() {
           </View>
         </Card>
         
+        {/* Quick Access */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Quick Access</Text>
+          <Card style={styles.menuCard}>
+            <MenuItem
+              icon="calendar"
+              title="Appointments"
+              onPress={() => router.push('/tabs/appointments')}
+            />
+            <View style={styles.divider} />
+            <MenuItem
+              icon="bookmark"
+              title="Saved Posts"
+              onPress={() => router.push('/saved')}
+            />
+          </Card>
+        </View>
+        
         {/* Business Tools */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Creative Tools</Text>

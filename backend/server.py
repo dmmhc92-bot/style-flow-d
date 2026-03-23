@@ -306,6 +306,32 @@ class AppealAction(BaseModel):
 
 APPEAL_STATUSES = ["pending", "under_review", "approved", "denied"]
 
+# ==================== POST & ENGAGEMENT MODELS ====================
+
+# Predefined trend tags for hairstyling
+TREND_TAGS = [
+    "balayage", "colortrend", "transformation", "mensstyle", "curlyhair",
+    "blondehair", "brunette", "redhead", "highlights", "lowlights",
+    "ombre", "sombre", "haircut", "pixiecut", "bobcut", "layers",
+    "extensions", "braids", "updo", "wedding", "editorial", "natural",
+    "vivids", "pastels", "colorcorrection", "keratintreatment", "textured"
+]
+
+class PostCreate(BaseModel):
+    images: List[str]  # Base64 encoded images (max 5)
+    caption: Optional[str] = None
+    tags: Optional[List[str]] = []  # Trend tags
+
+class PostUpdate(BaseModel):
+    caption: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+class CommentCreate(BaseModel):
+    text: str
+
+class ShareCreate(BaseModel):
+    caption: Optional[str] = None  # Optional message when sharing
+
 # ==================== HELPER FUNCTIONS ====================
 
 def hash_password(password: str) -> str:
@@ -2497,6 +2523,812 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
     }
 
 # ==================== APP STORE COMPLIANCE ====================
+
+# ==================== POSTS & ENGAGEMENT SYSTEM ====================
+
+@api_router.post("/posts")
+async def create_post(post_data: PostCreate, current_user: dict = Depends(get_current_user)):
+    """Create a new post with up to 5 images"""
+    user_id = str(current_user["_id"])
+    
+    # Validate images
+    if not post_data.images or len(post_data.images) == 0:
+        raise HTTPException(status_code=400, detail="At least one image is required")
+    if len(post_data.images) > 5:
+        raise HTTPException(status_code=400, detail="Maximum 5 images allowed per post")
+    
+    # Validate tags
+    valid_tags = [tag for tag in (post_data.tags or []) if tag.lower().replace("#", "") in TREND_TAGS]
+    
+    post_doc = {
+        "user_id": user_id,
+        "images": post_data.images,
+        "caption": post_data.caption,
+        "tags": valid_tags,
+        "likes_count": 0,
+        "comments_count": 0,
+        "saves_count": 0,
+        "shares_count": 0,
+        "is_shared": False,
+        "original_post_id": None,
+        "shared_by_id": None,
+        "share_caption": None,
+        "created_at": datetime.utcnow()
+    }
+    
+    result = await db.posts.insert_one(post_doc)
+    
+    return {
+        "id": str(result.inserted_id),
+        "message": "Post created successfully"
+    }
+
+@api_router.get("/posts")
+async def get_posts(
+    feed: str = "trending",  # trending, new, following
+    tag: Optional[str] = None,
+    limit: int = 20,
+    skip: int = 0,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get posts feed with different filters"""
+    current_user_id = str(current_user["_id"])
+    
+    # Get blocked users to filter out
+    blocked_by_me = await db.blocks.find({"blocker_id": current_user_id}).to_list(1000)
+    blocked_me = await db.blocks.find({"blocked_id": current_user_id}).to_list(1000)
+    blocked_ids = [b["blocked_id"] for b in blocked_by_me] + [b["blocker_id"] for b in blocked_me]
+    
+    # Base query excluding blocked users and banned/suspended
+    query = {"user_id": {"$nin": blocked_ids}}
+    
+    if tag:
+        query["tags"] = tag.lower().replace("#", "")
+    
+    if feed == "following":
+        # Get users current user follows
+        follows = await db.follows.find({"follower_id": current_user_id}).to_list(1000)
+        following_ids = [f["following_id"] for f in follows]
+        following_ids.append(current_user_id)  # Include own posts
+        query["user_id"] = {"$in": following_ids, "$nin": blocked_ids}
+    
+    # Get posts based on feed type
+    if feed == "trending":
+        # Calculate trending score: engagement velocity
+        # For simplicity, sort by engagement weighted by recency
+        pipeline = [
+            {"$match": query},
+            {"$addFields": {
+                "hours_since_posted": {
+                    "$divide": [
+                        {"$subtract": [datetime.utcnow(), "$created_at"]},
+                        3600000  # milliseconds in hour
+                    ]
+                },
+                "engagement_score": {
+                    "$add": [
+                        {"$multiply": ["$likes_count", 2]},
+                        {"$multiply": ["$comments_count", 3]},
+                        {"$multiply": ["$saves_count", 1.5]},
+                        {"$multiply": ["$shares_count", 2.5]}
+                    ]
+                }
+            }},
+            {"$addFields": {
+                "trending_score": {
+                    "$cond": [
+                        {"$eq": ["$hours_since_posted", 0]},
+                        "$engagement_score",
+                        {"$divide": ["$engagement_score", {"$add": ["$hours_since_posted", 1]}]}
+                    ]
+                }
+            }},
+            {"$match": {"hours_since_posted": {"$lt": 168}}},  # Only last 7 days
+            {"$sort": {"trending_score": -1, "created_at": -1}},
+            {"$skip": skip},
+            {"$limit": limit}
+        ]
+        posts = await db.posts.aggregate(pipeline).to_list(limit)
+    elif feed == "new":
+        posts = await db.posts.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    else:  # following
+        posts = await db.posts.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    # Enrich posts with user info and interaction status
+    result = []
+    for post in posts:
+        # Get post author
+        author = await db.users.find_one({"_id": ObjectId(post["user_id"])})
+        
+        # Check if current user liked/saved this post
+        user_liked = await db.post_likes.find_one({
+            "post_id": str(post["_id"]),
+            "user_id": current_user_id
+        }) is not None
+        
+        user_saved = await db.post_saves.find_one({
+            "post_id": str(post["_id"]),
+            "user_id": current_user_id
+        }) is not None
+        
+        # Handle shared posts
+        original_author = None
+        if post.get("is_shared") and post.get("original_post_id"):
+            original_post = await db.posts.find_one({"_id": ObjectId(post["original_post_id"])})
+            if original_post:
+                orig_user = await db.users.find_one({"_id": ObjectId(original_post["user_id"])})
+                if orig_user:
+                    original_author = {
+                        "id": str(orig_user["_id"]),
+                        "full_name": orig_user.get("full_name"),
+                        "profile_photo": orig_user.get("profile_photo")
+                    }
+        
+        # Get sharer info if this is a shared post
+        shared_by = None
+        if post.get("shared_by_id"):
+            sharer = await db.users.find_one({"_id": ObjectId(post["shared_by_id"])})
+            if sharer:
+                shared_by = {
+                    "id": str(sharer["_id"]),
+                    "full_name": sharer.get("full_name"),
+                    "profile_photo": sharer.get("profile_photo")
+                }
+        
+        result.append({
+            "id": str(post["_id"]),
+            "author": {
+                "id": str(author["_id"]) if author else None,
+                "full_name": author.get("full_name") if author else "Unknown",
+                "profile_photo": author.get("profile_photo") if author else None,
+                "business_name": author.get("business_name") if author else None
+            },
+            "images": post.get("images", []),
+            "caption": post.get("caption"),
+            "tags": post.get("tags", []),
+            "likes_count": post.get("likes_count", 0),
+            "comments_count": post.get("comments_count", 0),
+            "saves_count": post.get("saves_count", 0),
+            "shares_count": post.get("shares_count", 0),
+            "user_liked": user_liked,
+            "user_saved": user_saved,
+            "is_shared": post.get("is_shared", False),
+            "original_author": original_author,
+            "shared_by": shared_by,
+            "share_caption": post.get("share_caption"),
+            "created_at": post.get("created_at").isoformat() if post.get("created_at") else None
+        })
+    
+    return result
+
+@api_router.get("/posts/trending-tags")
+async def get_trending_tags(current_user: dict = Depends(get_current_user)):
+    """Get currently trending tags based on recent post engagement"""
+    # Aggregate tags from recent posts weighted by engagement
+    pipeline = [
+        {"$match": {"created_at": {"$gte": datetime.utcnow() - timedelta(days=7)}}},
+        {"$unwind": "$tags"},
+        {"$group": {
+            "_id": "$tags",
+            "post_count": {"$sum": 1},
+            "total_engagement": {
+                "$sum": {
+                    "$add": [
+                        {"$multiply": ["$likes_count", 2]},
+                        {"$multiply": ["$comments_count", 3]},
+                        "$saves_count"
+                    ]
+                }
+            }
+        }},
+        {"$addFields": {
+            "score": {"$multiply": ["$post_count", {"$add": ["$total_engagement", 1]}]}
+        }},
+        {"$sort": {"score": -1}},
+        {"$limit": 15}
+    ]
+    
+    trending = await db.posts.aggregate(pipeline).to_list(15)
+    
+    # If not enough trending, fill with predefined tags
+    result = [{"tag": t["_id"], "post_count": t["post_count"], "score": t["score"]} for t in trending]
+    
+    if len(result) < 10:
+        for tag in TREND_TAGS[:10 - len(result)]:
+            if not any(r["tag"] == tag for r in result):
+                result.append({"tag": tag, "post_count": 0, "score": 0})
+    
+    return result
+
+@api_router.get("/posts/{post_id}")
+async def get_post(post_id: str, current_user: dict = Depends(get_current_user)):
+    """Get single post with full details"""
+    current_user_id = str(current_user["_id"])
+    
+    post = await db.posts.find_one({"_id": ObjectId(post_id)})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    author = await db.users.find_one({"_id": ObjectId(post["user_id"])})
+    
+    # Check interactions
+    user_liked = await db.post_likes.find_one({
+        "post_id": post_id,
+        "user_id": current_user_id
+    }) is not None
+    
+    user_saved = await db.post_saves.find_one({
+        "post_id": post_id,
+        "user_id": current_user_id
+    }) is not None
+    
+    # Handle shared posts
+    original_author = None
+    original_post_data = None
+    if post.get("is_shared") and post.get("original_post_id"):
+        original_post = await db.posts.find_one({"_id": ObjectId(post["original_post_id"])})
+        if original_post:
+            orig_user = await db.users.find_one({"_id": ObjectId(original_post["user_id"])})
+            if orig_user:
+                original_author = {
+                    "id": str(orig_user["_id"]),
+                    "full_name": orig_user.get("full_name"),
+                    "profile_photo": orig_user.get("profile_photo")
+                }
+            original_post_data = {
+                "id": str(original_post["_id"]),
+                "images": original_post.get("images", []),
+                "caption": original_post.get("caption"),
+                "tags": original_post.get("tags", [])
+            }
+    
+    return {
+        "id": str(post["_id"]),
+        "author": {
+            "id": str(author["_id"]) if author else None,
+            "full_name": author.get("full_name") if author else "Unknown",
+            "profile_photo": author.get("profile_photo") if author else None,
+            "business_name": author.get("business_name") if author else None
+        },
+        "images": post.get("images", []),
+        "caption": post.get("caption"),
+        "tags": post.get("tags", []),
+        "likes_count": post.get("likes_count", 0),
+        "comments_count": post.get("comments_count", 0),
+        "saves_count": post.get("saves_count", 0),
+        "shares_count": post.get("shares_count", 0),
+        "user_liked": user_liked,
+        "user_saved": user_saved,
+        "is_shared": post.get("is_shared", False),
+        "original_author": original_author,
+        "original_post": original_post_data,
+        "share_caption": post.get("share_caption"),
+        "created_at": post.get("created_at").isoformat() if post.get("created_at") else None
+    }
+
+@api_router.delete("/posts/{post_id}")
+async def delete_post(post_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete own post"""
+    user_id = str(current_user["_id"])
+    
+    post = await db.posts.find_one({"_id": ObjectId(post_id)})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    if post["user_id"] != user_id and not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Not authorized to delete this post")
+    
+    # Delete associated data
+    await db.post_likes.delete_many({"post_id": post_id})
+    await db.post_saves.delete_many({"post_id": post_id})
+    await db.post_comments.delete_many({"post_id": post_id})
+    await db.posts.delete_one({"_id": ObjectId(post_id)})
+    
+    return {"message": "Post deleted successfully"}
+
+@api_router.get("/posts/user/{user_id}")
+async def get_user_posts(user_id: str, skip: int = 0, limit: int = 20, current_user: dict = Depends(get_current_user)):
+    """Get posts by a specific user"""
+    current_user_id = str(current_user["_id"])
+    
+    # Check if blocked
+    blocked = await db.blocks.find_one({
+        "$or": [
+            {"blocker_id": current_user_id, "blocked_id": user_id},
+            {"blocker_id": user_id, "blocked_id": current_user_id}
+        ]
+    })
+    if blocked:
+        raise HTTPException(status_code=403, detail="Cannot view this user's posts")
+    
+    posts = await db.posts.find({"user_id": user_id}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    result = []
+    for post in posts:
+        author = await db.users.find_one({"_id": ObjectId(post["user_id"])})
+        
+        user_liked = await db.post_likes.find_one({
+            "post_id": str(post["_id"]),
+            "user_id": current_user_id
+        }) is not None
+        
+        user_saved = await db.post_saves.find_one({
+            "post_id": str(post["_id"]),
+            "user_id": current_user_id
+        }) is not None
+        
+        result.append({
+            "id": str(post["_id"]),
+            "author": {
+                "id": str(author["_id"]) if author else None,
+                "full_name": author.get("full_name") if author else "Unknown",
+                "profile_photo": author.get("profile_photo") if author else None
+            },
+            "images": post.get("images", []),
+            "caption": post.get("caption"),
+            "tags": post.get("tags", []),
+            "likes_count": post.get("likes_count", 0),
+            "comments_count": post.get("comments_count", 0),
+            "saves_count": post.get("saves_count", 0),
+            "user_liked": user_liked,
+            "user_saved": user_saved,
+            "is_shared": post.get("is_shared", False),
+            "created_at": post.get("created_at").isoformat() if post.get("created_at") else None
+        })
+    
+    return result
+
+# ==================== POST INTERACTIONS ====================
+
+@api_router.post("/posts/{post_id}/like")
+async def toggle_like(post_id: str, current_user: dict = Depends(get_current_user)):
+    """Toggle like on a post"""
+    user_id = str(current_user["_id"])
+    
+    post = await db.posts.find_one({"_id": ObjectId(post_id)})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    existing_like = await db.post_likes.find_one({
+        "post_id": post_id,
+        "user_id": user_id
+    })
+    
+    if existing_like:
+        # Unlike
+        await db.post_likes.delete_one({"_id": existing_like["_id"]})
+        await db.posts.update_one(
+            {"_id": ObjectId(post_id)},
+            {"$inc": {"likes_count": -1}}
+        )
+        return {"liked": False, "likes_count": max(0, post.get("likes_count", 1) - 1)}
+    else:
+        # Like
+        await db.post_likes.insert_one({
+            "post_id": post_id,
+            "user_id": user_id,
+            "created_at": datetime.utcnow()
+        })
+        await db.posts.update_one(
+            {"_id": ObjectId(post_id)},
+            {"$inc": {"likes_count": 1}}
+        )
+        return {"liked": True, "likes_count": post.get("likes_count", 0) + 1}
+
+@api_router.post("/posts/{post_id}/save")
+async def toggle_save(post_id: str, current_user: dict = Depends(get_current_user)):
+    """Toggle save/bookmark on a post"""
+    user_id = str(current_user["_id"])
+    
+    post = await db.posts.find_one({"_id": ObjectId(post_id)})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    existing_save = await db.post_saves.find_one({
+        "post_id": post_id,
+        "user_id": user_id
+    })
+    
+    if existing_save:
+        # Unsave
+        await db.post_saves.delete_one({"_id": existing_save["_id"]})
+        await db.posts.update_one(
+            {"_id": ObjectId(post_id)},
+            {"$inc": {"saves_count": -1}}
+        )
+        return {"saved": False, "saves_count": max(0, post.get("saves_count", 1) - 1)}
+    else:
+        # Save
+        await db.post_saves.insert_one({
+            "post_id": post_id,
+            "user_id": user_id,
+            "created_at": datetime.utcnow()
+        })
+        await db.posts.update_one(
+            {"_id": ObjectId(post_id)},
+            {"$inc": {"saves_count": 1}}
+        )
+        return {"saved": True, "saves_count": post.get("saves_count", 0) + 1}
+
+@api_router.get("/posts/saved")
+async def get_saved_posts(skip: int = 0, limit: int = 20, current_user: dict = Depends(get_current_user)):
+    """Get user's saved/bookmarked posts"""
+    user_id = str(current_user["_id"])
+    
+    saved = await db.post_saves.find({"user_id": user_id}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    post_ids = [s["post_id"] for s in saved]
+    
+    result = []
+    for pid in post_ids:
+        post = await db.posts.find_one({"_id": ObjectId(pid)})
+        if post:
+            author = await db.users.find_one({"_id": ObjectId(post["user_id"])})
+            result.append({
+                "id": str(post["_id"]),
+                "author": {
+                    "id": str(author["_id"]) if author else None,
+                    "full_name": author.get("full_name") if author else "Unknown",
+                    "profile_photo": author.get("profile_photo") if author else None
+                },
+                "images": post.get("images", []),
+                "caption": post.get("caption"),
+                "likes_count": post.get("likes_count", 0),
+                "comments_count": post.get("comments_count", 0),
+                "created_at": post.get("created_at").isoformat() if post.get("created_at") else None
+            })
+    
+    return result
+
+# ==================== COMMENTS ====================
+
+@api_router.post("/posts/{post_id}/comments")
+async def add_comment(post_id: str, comment_data: CommentCreate, current_user: dict = Depends(get_current_user)):
+    """Add a comment to a post"""
+    user_id = str(current_user["_id"])
+    
+    post = await db.posts.find_one({"_id": ObjectId(post_id)})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    if not comment_data.text.strip():
+        raise HTTPException(status_code=400, detail="Comment cannot be empty")
+    
+    comment_doc = {
+        "post_id": post_id,
+        "user_id": user_id,
+        "text": comment_data.text.strip(),
+        "likes_count": 0,
+        "is_pinned": False,
+        "created_at": datetime.utcnow()
+    }
+    
+    result = await db.post_comments.insert_one(comment_doc)
+    
+    # Update comment count
+    await db.posts.update_one(
+        {"_id": ObjectId(post_id)},
+        {"$inc": {"comments_count": 1}}
+    )
+    
+    return {
+        "id": str(result.inserted_id),
+        "text": comment_data.text.strip(),
+        "user": {
+            "id": user_id,
+            "full_name": current_user.get("full_name"),
+            "profile_photo": current_user.get("profile_photo")
+        },
+        "likes_count": 0,
+        "is_pinned": False,
+        "created_at": datetime.utcnow().isoformat()
+    }
+
+@api_router.get("/posts/{post_id}/comments")
+async def get_comments(post_id: str, skip: int = 0, limit: int = 50, current_user: dict = Depends(get_current_user)):
+    """Get comments for a post, pinned comment first"""
+    user_id = str(current_user["_id"])
+    
+    # Get pinned comment first
+    pinned = await db.post_comments.find_one({"post_id": post_id, "is_pinned": True})
+    
+    # Get other comments
+    comments = await db.post_comments.find({
+        "post_id": post_id,
+        "is_pinned": {"$ne": True}
+    }).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    if pinned:
+        comments.insert(0, pinned)
+    
+    result = []
+    for comment in comments:
+        commenter = await db.users.find_one({"_id": ObjectId(comment["user_id"])})
+        
+        # Check if current user liked this comment
+        user_liked = await db.comment_likes.find_one({
+            "comment_id": str(comment["_id"]),
+            "user_id": user_id
+        }) is not None
+        
+        result.append({
+            "id": str(comment["_id"]),
+            "text": comment.get("text"),
+            "user": {
+                "id": str(commenter["_id"]) if commenter else None,
+                "full_name": commenter.get("full_name") if commenter else "Unknown",
+                "profile_photo": commenter.get("profile_photo") if commenter else None
+            },
+            "likes_count": comment.get("likes_count", 0),
+            "user_liked": user_liked,
+            "is_pinned": comment.get("is_pinned", False),
+            "created_at": comment.get("created_at").isoformat() if comment.get("created_at") else None
+        })
+    
+    return result
+
+@api_router.post("/comments/{comment_id}/like")
+async def toggle_comment_like(comment_id: str, current_user: dict = Depends(get_current_user)):
+    """Toggle like on a comment"""
+    user_id = str(current_user["_id"])
+    
+    comment = await db.post_comments.find_one({"_id": ObjectId(comment_id)})
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    
+    existing_like = await db.comment_likes.find_one({
+        "comment_id": comment_id,
+        "user_id": user_id
+    })
+    
+    if existing_like:
+        await db.comment_likes.delete_one({"_id": existing_like["_id"]})
+        await db.post_comments.update_one(
+            {"_id": ObjectId(comment_id)},
+            {"$inc": {"likes_count": -1}}
+        )
+        return {"liked": False, "likes_count": max(0, comment.get("likes_count", 1) - 1)}
+    else:
+        await db.comment_likes.insert_one({
+            "comment_id": comment_id,
+            "user_id": user_id,
+            "created_at": datetime.utcnow()
+        })
+        await db.post_comments.update_one(
+            {"_id": ObjectId(comment_id)},
+            {"$inc": {"likes_count": 1}}
+        )
+        return {"liked": True, "likes_count": comment.get("likes_count", 0) + 1}
+
+@api_router.post("/posts/{post_id}/comments/{comment_id}/pin")
+async def pin_comment(post_id: str, comment_id: str, current_user: dict = Depends(get_current_user)):
+    """Pin/unpin a comment (only post creator can do this)"""
+    user_id = str(current_user["_id"])
+    
+    post = await db.posts.find_one({"_id": ObjectId(post_id)})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    if post["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Only post creator can pin comments")
+    
+    comment = await db.post_comments.find_one({"_id": ObjectId(comment_id), "post_id": post_id})
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    
+    # Unpin all other comments first
+    await db.post_comments.update_many(
+        {"post_id": post_id},
+        {"$set": {"is_pinned": False}}
+    )
+    
+    # Toggle pin on this comment
+    new_pin_status = not comment.get("is_pinned", False)
+    if new_pin_status:
+        await db.post_comments.update_one(
+            {"_id": ObjectId(comment_id)},
+            {"$set": {"is_pinned": True}}
+        )
+    
+    return {"is_pinned": new_pin_status}
+
+@api_router.delete("/comments/{comment_id}")
+async def delete_comment(comment_id: str, current_user: dict = Depends(get_current_user)):
+    """Delete a comment (by comment author or post author)"""
+    user_id = str(current_user["_id"])
+    
+    comment = await db.post_comments.find_one({"_id": ObjectId(comment_id)})
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    
+    post = await db.posts.find_one({"_id": ObjectId(comment["post_id"])})
+    
+    # Allow deletion by comment author or post author
+    if comment["user_id"] != user_id and (not post or post["user_id"] != user_id):
+        raise HTTPException(status_code=403, detail="Not authorized to delete this comment")
+    
+    # Delete comment likes
+    await db.comment_likes.delete_many({"comment_id": comment_id})
+    
+    # Delete comment
+    await db.post_comments.delete_one({"_id": ObjectId(comment_id)})
+    
+    # Update count
+    if post:
+        await db.posts.update_one(
+            {"_id": post["_id"]},
+            {"$inc": {"comments_count": -1}}
+        )
+    
+    return {"message": "Comment deleted"}
+
+# ==================== SHARING ====================
+
+@api_router.post("/posts/{post_id}/share")
+async def share_post(post_id: str, share_data: ShareCreate, current_user: dict = Depends(get_current_user)):
+    """Share a post (creates a new post in feed showing original + sharer)"""
+    user_id = str(current_user["_id"])
+    
+    original_post = await db.posts.find_one({"_id": ObjectId(post_id)})
+    if not original_post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    # Can't share your own post
+    if original_post["user_id"] == user_id:
+        raise HTTPException(status_code=400, detail="Cannot share your own post")
+    
+    # Can't share a shared post (share the original instead)
+    actual_original_id = original_post.get("original_post_id") or post_id
+    
+    # Check if already shared by this user
+    existing_share = await db.posts.find_one({
+        "shared_by_id": user_id,
+        "original_post_id": actual_original_id
+    })
+    if existing_share:
+        raise HTTPException(status_code=400, detail="You have already shared this post")
+    
+    # Get original post data
+    if original_post.get("original_post_id"):
+        actual_original = await db.posts.find_one({"_id": ObjectId(original_post["original_post_id"])})
+        if actual_original:
+            original_post = actual_original
+            actual_original_id = str(actual_original["_id"])
+    
+    # Create shared post
+    shared_post_doc = {
+        "user_id": original_post["user_id"],  # Original creator
+        "images": original_post.get("images", []),
+        "caption": original_post.get("caption"),
+        "tags": original_post.get("tags", []),
+        "likes_count": 0,
+        "comments_count": 0,
+        "saves_count": 0,
+        "shares_count": 0,
+        "is_shared": True,
+        "original_post_id": actual_original_id,
+        "shared_by_id": user_id,
+        "share_caption": share_data.caption,
+        "created_at": datetime.utcnow()
+    }
+    
+    result = await db.posts.insert_one(shared_post_doc)
+    
+    # Update original post's share count
+    await db.posts.update_one(
+        {"_id": ObjectId(actual_original_id)},
+        {"$inc": {"shares_count": 1}}
+    )
+    
+    return {
+        "id": str(result.inserted_id),
+        "message": "Post shared successfully"
+    }
+
+# ==================== CREATOR PROFILES ====================
+
+@api_router.get("/creators/{user_id}/profile")
+async def get_creator_profile(user_id: str, current_user: dict = Depends(get_current_user)):
+    """Get enhanced creator profile with portfolio sections and stats"""
+    current_user_id = str(current_user["_id"])
+    
+    # Check if blocked
+    blocked = await db.blocks.find_one({
+        "$or": [
+            {"blocker_id": current_user_id, "blocked_id": user_id},
+            {"blocker_id": user_id, "blocked_id": current_user_id}
+        ]
+    })
+    if blocked:
+        raise HTTPException(status_code=403, detail="Cannot view this profile")
+    
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get follow status
+    is_following = await db.follows.find_one({
+        "follower_id": current_user_id,
+        "following_id": user_id
+    }) is not None
+    
+    # Get counts
+    followers_count = await db.follows.count_documents({"following_id": user_id})
+    following_count = await db.follows.count_documents({"follower_id": user_id})
+    posts_count = await db.posts.count_documents({"user_id": user_id, "is_shared": {"$ne": True}})
+    
+    # Get engagement stats
+    pipeline = [
+        {"$match": {"user_id": user_id}},
+        {"$group": {
+            "_id": None,
+            "total_likes": {"$sum": "$likes_count"},
+            "total_comments": {"$sum": "$comments_count"},
+            "total_saves": {"$sum": "$saves_count"}
+        }}
+    ]
+    engagement_stats = await db.posts.aggregate(pipeline).to_list(1)
+    engagement = engagement_stats[0] if engagement_stats else {"total_likes": 0, "total_comments": 0, "total_saves": 0}
+    
+    # Get signature styles (most used tags)
+    tag_pipeline = [
+        {"$match": {"user_id": user_id}},
+        {"$unwind": "$tags"},
+        {"$group": {"_id": "$tags", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 5}
+    ]
+    signature_styles = await db.posts.aggregate(tag_pipeline).to_list(5)
+    
+    # Get portfolio categories (group by tags)
+    portfolio_sections = {}
+    posts = await db.posts.find({"user_id": user_id, "is_shared": {"$ne": True}}).sort("created_at", -1).limit(50).to_list(50)
+    
+    for post in posts:
+        for tag in post.get("tags", []):
+            if tag not in portfolio_sections:
+                portfolio_sections[tag] = []
+            if len(portfolio_sections[tag]) < 6:  # Max 6 posts per section
+                portfolio_sections[tag].append({
+                    "id": str(post["_id"]),
+                    "cover_image": post.get("images", [None])[0],
+                    "likes_count": post.get("likes_count", 0)
+                })
+    
+    return {
+        "id": str(user["_id"]),
+        "full_name": user.get("full_name"),
+        "business_name": user.get("business_name"),
+        "bio": user.get("bio"),
+        "profile_photo": user.get("profile_photo"),
+        "city": user.get("city"),
+        "specialties": user.get("specialties"),
+        "instagram_handle": user.get("instagram_handle"),
+        "tiktok_handle": user.get("tiktok_handle"),
+        "website_url": user.get("website_url"),
+        "is_following": is_following,
+        "followers_count": followers_count,
+        "following_count": following_count,
+        "posts_count": posts_count,
+        "engagement": {
+            "total_likes": engagement.get("total_likes", 0),
+            "total_comments": engagement.get("total_comments", 0),
+            "total_saves": engagement.get("total_saves", 0)
+        },
+        "signature_styles": [{"tag": s["_id"], "count": s["count"]} for s in signature_styles],
+        "portfolio_sections": portfolio_sections
+    }
+
+@api_router.put("/profile/signature-styles")
+async def update_signature_styles(styles: List[str], current_user: dict = Depends(get_current_user)):
+    """Update user's signature styles"""
+    valid_styles = [s for s in styles if s.lower().replace("#", "") in TREND_TAGS][:5]
+    
+    await db.users.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"signature_styles": valid_styles}}
+    )
+    
+    return {"signature_styles": valid_styles}
 
 @api_router.get("/support")
 async def get_support():

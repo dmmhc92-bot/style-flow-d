@@ -39,20 +39,20 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="feed"
+        options={{
+          title: 'Feed',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="flame" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="clients"
         options={{
           title: 'Clients',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="people" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="appointments"
-        options={{
-          title: 'Appointments',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="calendar" size={size} color={color} />
           ),
         }}
       />
@@ -76,6 +76,12 @@ export default function TabLayout() {
       />
       <Tabs.Screen
         name="gallery"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="appointments"
         options={{
           href: null,
         }}
