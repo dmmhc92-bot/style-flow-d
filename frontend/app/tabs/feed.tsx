@@ -62,6 +62,92 @@ interface TrendTag {
 
 type FeedType = 'trending' | 'new' | 'following';
 
+// ImageCarousel as a proper React component (hooks must be in components, not render functions)
+const ImageCarousel = ({ 
+  images, 
+  postId, 
+  onPress 
+}: { 
+  images: string[]; 
+  postId: string; 
+  onPress: () => void;
+}) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  if (images.length === 1) {
+    return (
+      <TouchableOpacity activeOpacity={0.95} onPress={onPress}>
+        <Image
+          source={{ uri: images[0].startsWith('data:') ? images[0] : `data:image/jpeg;base64,${images[0]}` }}
+          style={carouselStyles.postImage}
+          resizeMode="cover"
+        />
+      </TouchableOpacity>
+    );
+  }
+
+  return (
+    <View>
+      <ScrollView
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={(e) => {
+          const index = Math.round(e.nativeEvent.contentOffset.x / CARD_WIDTH);
+          setCurrentIndex(index);
+        }}
+      >
+        {images.map((img, idx) => (
+          <TouchableOpacity key={idx} activeOpacity={0.95} onPress={onPress}>
+            <Image
+              source={{ uri: img.startsWith('data:') ? img : `data:image/jpeg;base64,${img}` }}
+              style={carouselStyles.postImage}
+              resizeMode="cover"
+            />
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+      <View style={carouselStyles.carouselDots}>
+        {images.map((_, idx) => (
+          <View
+            key={idx}
+            style={[carouselStyles.dot, idx === currentIndex && carouselStyles.dotActive]}
+          />
+        ))}
+      </View>
+    </View>
+  );
+};
+
+// Carousel styles defined separately
+const carouselStyles = StyleSheet.create({
+  postImage: {
+    width: CARD_WIDTH,
+    height: CARD_WIDTH,
+    marginHorizontal: Spacing.screenPadding,
+    borderRadius: Spacing.radiusMedium,
+  },
+  carouselDots: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    gap: 6,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.textLight + '60',
+  },
+  dotActive: {
+    backgroundColor: Colors.accent,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+});
+
 export default function FeedScreen() {
   const router = useRouter();
   const [posts, setPosts] = useState<Post[]>([]);
@@ -239,60 +325,7 @@ export default function FeedScreen() {
     </ScrollView>
   );
 
-  const renderImageCarousel = (images: string[], postId: string) => {
-    const [currentIndex, setCurrentIndex] = useState(0);
-
-    if (images.length === 1) {
-      return (
-        <TouchableOpacity
-          activeOpacity={0.95}
-          onPress={() => router.push(`/post/${postId}`)}
-        >
-          <Image
-            source={{ uri: images[0].startsWith('data:') ? images[0] : `data:image/jpeg;base64,${images[0]}` }}
-            style={styles.postImage}
-            resizeMode="cover"
-          />
-        </TouchableOpacity>
-      );
-    }
-
-    return (
-      <View>
-        <ScrollView
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          onMomentumScrollEnd={(e) => {
-            const index = Math.round(e.nativeEvent.contentOffset.x / CARD_WIDTH);
-            setCurrentIndex(index);
-          }}
-        >
-          {images.map((img, idx) => (
-            <TouchableOpacity
-              key={idx}
-              activeOpacity={0.95}
-              onPress={() => router.push(`/post/${postId}`)}
-            >
-              <Image
-                source={{ uri: img.startsWith('data:') ? img : `data:image/jpeg;base64,${img}` }}
-                style={styles.postImage}
-                resizeMode="cover"
-              />
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-        <View style={styles.carouselDots}>
-          {images.map((_, idx) => (
-            <View
-              key={idx}
-              style={[styles.dot, idx === currentIndex && styles.dotActive]}
-            />
-          ))}
-        </View>
-      </View>
-    );
-  };
+  // Image carousel is now a proper component - see ImageCarousel below
 
   const renderPost = ({ item }: { item: Post }) => (
     <View style={styles.postCard}>
@@ -351,7 +384,7 @@ export default function FeedScreen() {
       )}
 
       {/* Image Carousel */}
-      {renderImageCarousel(item.images, item.id)}
+      <ImageCarousel images={item.images} postId={item.id} />
 
       {/* Actions */}
       <View style={styles.postActions}>

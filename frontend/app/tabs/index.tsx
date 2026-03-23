@@ -39,14 +39,16 @@ export default function DashboardScreen() {
     </TouchableOpacity>
   );
   
-  const StatCard = ({ title, value, icon, color }: any) => (
-    <Card style={styles.statCard}>
-      <View style={[styles.statIconContainer, { backgroundColor: color + '15' }]}>
-        <Ionicons name={icon} size={24} color={color} />
-      </View>
-      <Text style={styles.statValue}>{value}</Text>
-      <Text style={styles.statTitle}>{title}</Text>
-    </Card>
+  const StatCard = ({ title, value, icon, color, onPress }: any) => (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
+      <Card style={styles.statCard}>
+        <View style={[styles.statIconContainer, { backgroundColor: color + '15' }]}>
+          <Ionicons name={icon} size={24} color={color} />
+        </View>
+        <Text style={styles.statValue}>{value}</Text>
+        <Text style={styles.statTitle}>{title}</Text>
+      </Card>
+    </TouchableOpacity>
   );
   
   return (
@@ -78,24 +80,28 @@ export default function DashboardScreen() {
             value={stats?.today_appointments || 0}
             icon="calendar-outline"
             color={Colors.info}
+            onPress={() => router.push('/tabs/calendar')}
           />
           <StatCard
             title="Total Clients"
             value={stats?.total_clients || 0}
             icon="people-outline"
             color={Colors.accent}
+            onPress={() => router.push('/tabs/clients')}
           />
           <StatCard
             title="VIP Clients"
             value={stats?.vip_clients || 0}
             icon="star-outline"
             color={Colors.vip}
+            onPress={() => router.push('/tabs/clients')}
           />
           <StatCard
             title="Followers"
             value={stats?.followers_count || 0}
             icon="heart-outline"
             color={Colors.success}
+            onPress={() => router.push('/tabs/feed')}
           />
         </View>
         
