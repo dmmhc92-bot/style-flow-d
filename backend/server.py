@@ -152,6 +152,7 @@ class ClientCreate(BaseModel):
     hair_goals: Optional[str] = None
     is_vip: bool = False
     last_visit: Optional[datetime] = None
+    rebook_interval_days: Optional[int] = 42  # Default 6 weeks
 
 class ClientResponse(BaseModel):
     id: str
@@ -167,6 +168,9 @@ class ClientResponse(BaseModel):
     visit_count: int = 0
     last_visit: Optional[datetime] = None
     created_at: datetime
+    rebook_interval_days: Optional[int] = 42
+    next_visit_due: Optional[datetime] = None  # Calculated field
+    rebook_status: Optional[str] = None  # "on_track", "due_soon", "overdue"
 
 class FormulaCreate(BaseModel):
     client_id: str
@@ -1957,6 +1961,44 @@ async def delete_portfolio_image(image_id: str, current_user: dict = Depends(get
     
     return {"message": "Image deleted successfully"}
 
+# ==================== REBOOK STATUS HELPER ====================
+
+def calculate_rebook_status(last_visit: Optional[datetime], rebook_interval_days: int = 42) -> dict:
+    """Calculate next visit due date and rebook status"""
+    if not last_visit:
+        return {
+            "next_visit_due": None,
+            "rebook_status": "new"  # New client, no visit history
+        }
+    
+    next_due = last_visit + timedelta(days=rebook_interval_days)
+    now = datetime.utcnow()
+    days_until_due = (next_due - now).days
+    
+    if days_until_due < 0:
+        status = "overdue"
+    elif days_until_due <= 7:
+        status = "due_soon"
+    else:
+        status = "on_track"
+    
+    return {
+        "next_visit_due": next_due,
+        "rebook_status": status
+    }
+
+def enrich_client_with_rebook(client: dict) -> dict:
+    """Add rebook status fields to client"""
+    rebook_interval = client.get("rebook_interval_days", 42)
+    last_visit = client.get("last_visit")
+    rebook_info = calculate_rebook_status(last_visit, rebook_interval)
+    
+    return {
+        **client,
+        "rebook_interval_days": rebook_interval,
+        **rebook_info
+    }
+
 # ==================== CLIENT ENDPOINTS ====================
 
 @api_router.post("/clients", response_model=ClientResponse)
@@ -1975,20 +2017,29 @@ async def create_client(client_data: ClientCreate, current_user: dict = Depends(
         "is_vip": client_data.is_vip,
         "visit_count": 0,
         "last_visit": client_data.last_visit,
+        "rebook_interval_days": client_data.rebook_interval_days or 42,
         "created_at": datetime.utcnow()
     }
     
     result = await db.clients.insert_one(client_doc)
     client_doc["id"] = str(result.inserted_id)
     
-    return ClientResponse(**client_doc)
+    # Enrich with rebook status
+    enriched = enrich_client_with_rebook(client_doc)
+    
+    return ClientResponse(**enriched)
 
 @api_router.get("/clients", response_model=List[ClientResponse])
 async def get_clients(current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
     clients = await db.clients.find({"user_id": user_id}).to_list(1000)
     
-    return [ClientResponse(id=str(c["_id"]), **{k: v for k, v in c.items() if k != "_id"}) for c in clients]
+    result = []
+    for c in clients:
+        enriched = enrich_client_with_rebook(c)
+        result.append(ClientResponse(id=str(c["_id"]), **{k: v for k, v in enriched.items() if k != "_id"}))
+    
+    return result
 
 @api_router.get("/clients/{client_id}", response_model=ClientResponse)
 async def get_client(client_id: str, current_user: dict = Depends(get_current_user)):
@@ -2002,7 +2053,8 @@ async def get_client(client_id: str, current_user: dict = Depends(get_current_us
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     
-    return ClientResponse(id=str(client["_id"]), **{k: v for k, v in client.items() if k != "_id"})
+    enriched = enrich_client_with_rebook(client)
+    return ClientResponse(id=str(client["_id"]), **{k: v for k, v in enriched.items() if k != "_id"})
 
 @api_router.put("/clients/{client_id}")
 async def update_client(client_id: str, client_data: dict, current_user: dict = Depends(get_current_user)):
@@ -2019,11 +2071,12 @@ async def update_client(client_id: str, client_data: dict, current_user: dict = 
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Client not found")
     
-    # Return the updated client for immediate UI sync
+    # Return the updated client with rebook status for immediate UI sync
     updated_client = await db.clients.find_one({"_id": ObjectId(client_id)})
+    enriched = enrich_client_with_rebook(updated_client)
     return {
         "id": str(updated_client["_id"]),
-        **{k: v for k, v in updated_client.items() if k != "_id"}
+        **{k: v for k, v in enriched.items() if k != "_id"}
     }
 
 @api_router.delete("/clients/{client_id}")
@@ -2038,14 +2091,141 @@ async def delete_client(client_id: str, current_user: dict = Depends(get_current
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Client not found")
     
-    # Delete related data
-    await db.formulas.delete_many({"client_id": client_id})
-    await db.gallery.delete_many({"client_id": client_id})
-    await db.appointments.delete_many({"client_id": client_id})
-    await db.retail.delete_many({"client_id": client_id})
-    await db.no_shows.delete_many({"client_id": client_id})
+    # Delete related data - STRICTLY USER-SCOPED
+    user_id = str(current_user["_id"])
+    await db.formulas.delete_many({"client_id": client_id, "user_id": user_id})
+    await db.gallery.delete_many({"client_id": client_id, "user_id": user_id})
+    await db.appointments.delete_many({"client_id": client_id, "user_id": user_id})
+    await db.retail.delete_many({"client_id": client_id, "user_id": user_id})
+    await db.no_shows.delete_many({"client_id": client_id, "user_id": user_id})
     
     return {"message": "Client deleted successfully"}
+
+# ==================== CLIENT TIMELINE ENDPOINT ====================
+
+@api_router.get("/clients/{client_id}/timeline")
+async def get_client_timeline(client_id: str, current_user: dict = Depends(get_current_user)):
+    """Get complete timeline for a client - appointments, formulas, gallery, notes
+    STRICTLY user-scoped - only returns data for the authenticated user's client"""
+    from bson import ObjectId
+    
+    user_id = str(current_user["_id"])
+    
+    # Verify client belongs to user
+    try:
+        client = await db.clients.find_one({"_id": ObjectId(client_id), "user_id": user_id})
+    except:
+        raise HTTPException(status_code=404, detail="Client not found")
+    
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+    
+    # Get all related data - ALL queries include user_id for strict isolation
+    appointments = await db.appointments.find({
+        "client_id": client_id, 
+        "user_id": user_id
+    }).sort("appointment_date", -1).to_list(100)
+    
+    formulas = await db.formulas.find({
+        "client_id": client_id, 
+        "user_id": user_id
+    }).sort("date_created", -1).to_list(100)
+    
+    gallery = await db.gallery.find({
+        "client_id": client_id, 
+        "user_id": user_id
+    }).sort("date_taken", -1).to_list(100)
+    
+    # Build timeline events
+    timeline = []
+    
+    for apt in appointments:
+        timeline.append({
+            "id": str(apt["_id"]),
+            "type": "appointment",
+            "date": apt["appointment_date"],
+            "service": apt["service"],
+            "status": apt["status"],
+            "notes": apt.get("notes"),
+            "duration_minutes": apt.get("duration_minutes", 60)
+        })
+    
+    for formula in formulas:
+        timeline.append({
+            "id": str(formula["_id"]),
+            "type": "formula",
+            "date": formula["date_created"],
+            "formula_name": formula["formula_name"],
+            "formula_details": formula["formula_details"]
+        })
+    
+    for photo in gallery:
+        timeline.append({
+            "id": str(photo["_id"]),
+            "type": "photo",
+            "date": photo["date_taken"],
+            "before_photo": photo.get("before_photo"),
+            "after_photo": photo.get("after_photo"),
+            "notes": photo.get("notes")
+        })
+    
+    # Sort by date descending
+    timeline.sort(key=lambda x: x["date"], reverse=True)
+    
+    # Enrich client with rebook status
+    enriched_client = enrich_client_with_rebook(client)
+    
+    # Get last formula for "Repeat Last" functionality
+    last_formula = formulas[0] if formulas else None
+    
+    return {
+        "client": {
+            "id": str(client["_id"]),
+            **{k: v for k, v in enriched_client.items() if k != "_id"}
+        },
+        "timeline": timeline,
+        "last_formula": {
+            "id": str(last_formula["_id"]),
+            "formula_name": last_formula["formula_name"],
+            "formula_details": last_formula["formula_details"],
+            "date_created": last_formula["date_created"]
+        } if last_formula else None,
+        "stats": {
+            "total_visits": len([a for a in appointments if a["status"] == "completed"]),
+            "total_formulas": len(formulas),
+            "total_photos": len(gallery)
+        }
+    }
+
+# ==================== SMART REBOOK ENDPOINTS ====================
+
+@api_router.get("/clients/rebook/due")
+async def get_clients_due_for_rebook(current_user: dict = Depends(get_current_user)):
+    """Get clients due or overdue for rebooking - STRICTLY user-scoped"""
+    user_id = str(current_user["_id"])
+    
+    clients = await db.clients.find({"user_id": user_id}).to_list(1000)
+    
+    due_soon = []
+    overdue = []
+    
+    for c in clients:
+        enriched = enrich_client_with_rebook(c)
+        client_data = {
+            "id": str(c["_id"]),
+            **{k: v for k, v in enriched.items() if k != "_id"}
+        }
+        
+        if enriched.get("rebook_status") == "due_soon":
+            due_soon.append(client_data)
+        elif enriched.get("rebook_status") == "overdue":
+            overdue.append(client_data)
+    
+    return {
+        "due_soon": due_soon,
+        "overdue": overdue,
+        "total_due": len(due_soon) + len(overdue)
+    }
 
 # ==================== FORMULA ENDPOINTS ====================
 
@@ -2515,11 +2695,11 @@ Be helpful, professional, and focused on helping the stylist grow their business
 async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
     
-    # Get counts
+    # Get counts - STRICTLY user-scoped
     total_clients = await db.clients.count_documents({"user_id": user_id})
     vip_clients = await db.clients.count_documents({"user_id": user_id, "is_vip": True})
     
-    # Today's appointments
+    # Today's appointments - STRICTLY user-scoped
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     today_end = today_start + timedelta(days=1)
     today_appointments = await db.appointments.count_documents({
@@ -2536,9 +2716,8 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
     
     # Followers count
     from bson import ObjectId
-    followers_count = await db.connections.count_documents({
-        "following_id": ObjectId(current_user["_id"]),
-        "status": "active"
+    followers_count = await db.follows.count_documents({
+        "following_id": user_id
     })
     
     # New clients this week
@@ -2547,12 +2726,17 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
         "created_at": {"$gte": week_start}
     })
     
-    # Clients due for rebooking (no visit in last 60 days)
-    sixty_days_ago = datetime.utcnow() - timedelta(days=60)
-    clients_due = await db.clients.count_documents({
-        "user_id": user_id,
-        "last_visit": {"$lt": sixty_days_ago}
-    })
+    # SMART REBOOK: Calculate clients due/overdue using per-client intervals
+    clients = await db.clients.find({"user_id": user_id}).to_list(1000)
+    clients_due_soon = 0
+    clients_overdue = 0
+    
+    for c in clients:
+        enriched = enrich_client_with_rebook(c)
+        if enriched.get("rebook_status") == "due_soon":
+            clients_due_soon += 1
+        elif enriched.get("rebook_status") == "overdue":
+            clients_overdue += 1
     
     return {
         "total_clients": total_clients,
@@ -2561,7 +2745,9 @@ async def get_dashboard_stats(current_user: dict = Depends(get_current_user)):
         "week_appointments": week_appointments,
         "followers_count": followers_count,
         "new_clients_this_week": new_clients_this_week,
-        "clients_due_rebooking": clients_due
+        "clients_due_rebooking": clients_due_soon + clients_overdue,
+        "clients_due_soon": clients_due_soon,
+        "clients_overdue": clients_overdue
     }
 
 # ==================== APP STORE COMPLIANCE ====================

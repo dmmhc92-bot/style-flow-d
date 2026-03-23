@@ -83,6 +83,26 @@ export default function ClientDetailScreen() {
     return <LoadingSpinner />;
   }
   
+  const getRebookStatusBadge = () => {
+    if (!client?.rebook_status) return null;
+    
+    const statusConfig: Record<string, { color: string; icon: string; label: string }> = {
+      overdue: { color: Colors.error, icon: 'alert-circle', label: 'Overdue for Rebook' },
+      due_soon: { color: Colors.warning, icon: 'time', label: 'Due Soon' },
+      on_track: { color: Colors.success, icon: 'checkmark-circle', label: 'On Track' },
+      new: { color: Colors.info, icon: 'person-add', label: 'New Client' },
+    };
+    
+    const config = statusConfig[client.rebook_status] || statusConfig.new;
+    
+    return (
+      <View style={[styles.rebookBadge, { backgroundColor: config.color + '20' }]}>
+        <Ionicons name={config.icon as any} size={14} color={config.color} />
+        <Text style={[styles.rebookBadgeText, { color: config.color }]}>{config.label}</Text>
+      </View>
+    );
+  };
+  
   const InfoRow = ({ icon, label, value }: any) => {
     if (!value) return null;
     
@@ -129,8 +149,10 @@ export default function ClientDetailScreen() {
                   <Ionicons name="star" size={20} color={Colors.vip} />
                 )}
               </View>
+              {getRebookStatusBadge()}
               <Text style={styles.visitCount}>
                 {client.visit_count} visit{client.visit_count !== 1 ? 's' : ''}
+                {client.rebook_interval_days && ` • ${client.rebook_interval_days} day interval`}
               </Text>
             </View>
           </View>
@@ -164,18 +186,18 @@ export default function ClientDetailScreen() {
           
           <TouchableOpacity
             style={styles.actionButton}
-            onPress={() => router.push(`/client/${id}/photos`)}
+            onPress={() => router.push(`/client/${id}/timeline`)}
           >
-            <Ionicons name="camera" size={24} color={Colors.accent} />
-            <Text style={styles.actionText}>Photos</Text>
+            <Ionicons name="time" size={24} color={Colors.accent} />
+            <Text style={styles.actionText}>Timeline</Text>
           </TouchableOpacity>
           
           <TouchableOpacity
             style={styles.actionButton}
-            onPress={() => router.push(`/client/${id}/visits`)}
+            onPress={() => router.push(`/client/${id}/photos`)}
           >
-            <Ionicons name="time" size={24} color={Colors.accent} />
-            <Text style={styles.actionText}>Visits</Text>
+            <Ionicons name="camera" size={24} color={Colors.accent} />
+            <Text style={styles.actionText}>Photos</Text>
           </TouchableOpacity>
         </View>
         
@@ -358,5 +380,19 @@ const styles = StyleSheet.create({
   deleteButton: {
     marginTop: Spacing.md,
     borderColor: Colors.error,
+  },
+  rebookBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    borderRadius: 12,
+    marginBottom: Spacing.xs,
+  },
+  rebookBadgeText: {
+    fontSize: Typography.caption,
+    fontWeight: Typography.medium,
+    marginLeft: 4,
   },
 });

@@ -125,15 +125,36 @@ export default function DashboardScreen() {
           </View>
         </Card>
         
-        {/* Rebooking Alert */}
-        {stats?.clients_due_rebooking > 0 && (
+        {/* Smart Rebook Alert - Overdue */}
+        {stats?.clients_overdue > 0 && (
+          <Card style={[styles.alertCard, styles.overdueCard]}>
+            <View style={styles.alertContent}>
+              <Ionicons name="alert-circle" size={24} color={Colors.error} />
+              <View style={styles.alertText}>
+                <Text style={styles.alertTitle}>Overdue for Rebook</Text>
+                <Text style={styles.alertMessage}>
+                  {stats.clients_overdue} client{stats.clients_overdue > 1 ? 's' : ''} past their rebook date
+                </Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={[styles.alertButton, { backgroundColor: Colors.error }]}
+              onPress={() => router.push('/tabs/clients')}
+            >
+              <Text style={styles.alertButtonText}>Contact Now</Text>
+            </TouchableOpacity>
+          </Card>
+        )}
+        
+        {/* Smart Rebook Alert - Due Soon */}
+        {stats?.clients_due_soon > 0 && (
           <Card style={styles.alertCard}>
             <View style={styles.alertContent}>
-              <Ionicons name="alert-circle" size={24} color={Colors.warning} />
+              <Ionicons name="time" size={24} color={Colors.warning} />
               <View style={styles.alertText}>
-                <Text style={styles.alertTitle}>Rebooking Reminder</Text>
+                <Text style={styles.alertTitle}>Rebook Due Soon</Text>
                 <Text style={styles.alertMessage}>
-                  {stats.clients_due_rebooking} client{stats.clients_due_rebooking > 1 ? 's' : ''} haven't visited in 60+ days
+                  {stats.clients_due_soon} client{stats.clients_due_soon > 1 ? 's' : ''} due within 7 days
                 </Text>
               </View>
             </View>
@@ -275,6 +296,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.warning + '10',
     borderWidth: 1,
     borderColor: Colors.warning + '30',
+  },
+  overdueCard: {
+    backgroundColor: Colors.error + '10',
+    borderColor: Colors.error + '30',
   },
   alertContent: {
     flexDirection: 'row',

@@ -38,6 +38,17 @@ export default function ClientsScreen() {
     }
   }, [searchQuery, clients]);
   
+  const getRebookStatusIcon = (status: string) => {
+    switch (status) {
+      case 'overdue':
+        return <Ionicons name="alert-circle" size={14} color={Colors.error} style={{ marginLeft: 4 }} />;
+      case 'due_soon':
+        return <Ionicons name="time" size={14} color={Colors.warning} style={{ marginLeft: 4 }} />;
+      default:
+        return null;
+    }
+  };
+  
   const renderClient = ({ item }: any) => (
     <Card
       style={styles.clientCard}
@@ -60,6 +71,7 @@ export default function ClientsScreen() {
             {item.is_vip && (
               <Ionicons name="star" size={16} color={Colors.vip} />
             )}
+            {getRebookStatusIcon(item.rebook_status)}
             {item._pendingSync && (
               <View style={styles.pendingBadge}>
                 <Ionicons name="cloud-upload-outline" size={12} color={Colors.accent} />
@@ -74,6 +86,8 @@ export default function ClientsScreen() {
           )}
           <Text style={styles.clientStats}>
             {item.visit_count || 0} visit{item.visit_count !== 1 ? 's' : ''}
+            {item.rebook_status === 'overdue' && ' • Overdue'}
+            {item.rebook_status === 'due_soon' && ' • Due Soon'}
           </Text>
         </View>
         
