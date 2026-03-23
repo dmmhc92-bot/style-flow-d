@@ -1,12 +1,8 @@
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
-import os
 import logging
-from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict, Set
 from datetime import datetime, timedelta
@@ -18,31 +14,27 @@ import secrets
 import resend
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+# Import from new modular structure
+from core.config import settings
+from core.database import db, client
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
-
-# JWT Configuration
-JWT_SECRET = os.environ['JWT_SECRET_KEY']
-JWT_ALGORITHM = os.environ['JWT_ALGORITHM']
-JWT_EXPIRATION = int(os.environ['JWT_EXPIRATION_MINUTES'])
+# JWT Configuration (use from settings)
+JWT_SECRET = settings.JWT_SECRET
+JWT_ALGORITHM = settings.JWT_ALGORITHM
+JWT_EXPIRATION = settings.JWT_EXPIRATION_MINUTES
 
 # OpenAI Configuration
-EMERGENT_LLM_KEY = os.environ['EMERGENT_LLM_KEY']
+EMERGENT_LLM_KEY = settings.EMERGENT_LLM_KEY
 
 # Resend Configuration
-RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
+RESEND_API_KEY = settings.RESEND_API_KEY
 resend.api_key = RESEND_API_KEY
 
 # App deep link scheme
-APP_SCHEME = "styleflow"
-APP_DOMAIN = os.environ.get('APP_DOMAIN', 'homestyleflowapp.com')
-APP_BUNDLE_ID = "com.styleflow.app"
-APP_TEAM_ID = os.environ.get('APPLE_TEAM_ID', 'NTZB3ZFKXK')
+APP_SCHEME = settings.APP_SCHEME
+APP_DOMAIN = settings.APP_DOMAIN
+APP_BUNDLE_ID = settings.APP_BUNDLE_ID
+APP_TEAM_ID = settings.APP_TEAM_ID
 
 # Create the main app without a prefix
 app = FastAPI()
