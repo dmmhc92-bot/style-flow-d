@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { storage } from '../utils/storage';
 import { offlineStorage } from '../utils/offlineStorage';
-import api from '../utils/api';
+import api, { setApiToken, clearApiToken } from '../utils/api';
 
 interface User {
   id?: string;
@@ -53,6 +53,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const response = await api.post('/auth/login', { email, password });
       const { token, user } = response.data;
       
+      // Set token in memory cache FIRST for immediate use
+      setApiToken(token);
+      
+      // Then persist to storage
       await storage.setToken(token);
       await storage.setUserData(user);
       
@@ -77,6 +81,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       });
       const { token, user } = response.data;
       
+      // Set token in memory cache FIRST for immediate use
+      setApiToken(token);
+      
+      // Then persist to storage
       await storage.setToken(token);
       await storage.setUserData(user);
       
@@ -92,6 +100,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   
   logout: async () => {
+    // Clear token from memory cache first
+    clearApiToken();
+    
     // Clear offline data for this user
     await offlineStorage.clearUserData();
     offlineStorage.clearUserId();
@@ -105,6 +116,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const token = await storage.getToken();
       
       if (token) {
+        // Set token in memory cache for API calls
+        setApiToken(token);
+        
         // Try to load from server
         try {
           const response = await api.get('/auth/me');
@@ -132,6 +146,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ isLoading: false });
       }
     } catch (error) {
+      // Clear token from memory on auth failure
+      clearApiToken();
       await storage.clearAll();
       set({ user: null, token: null, isAuthenticated: false, isLoading: false });
     }
