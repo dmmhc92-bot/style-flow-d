@@ -2740,6 +2740,35 @@ async def get_trending_tags(current_user: dict = Depends(get_current_user)):
     
     return result
 
+@api_router.get("/posts/saved")
+async def get_saved_posts(skip: int = 0, limit: int = 20, current_user: dict = Depends(get_current_user)):
+    """Get user's saved/bookmarked posts"""
+    user_id = str(current_user["_id"])
+    
+    saved = await db.post_saves.find({"user_id": user_id}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    post_ids = [s["post_id"] for s in saved]
+    
+    result = []
+    for pid in post_ids:
+        post = await db.posts.find_one({"_id": ObjectId(pid)})
+        if post:
+            author = await db.users.find_one({"_id": ObjectId(post["user_id"])})
+            result.append({
+                "id": str(post["_id"]),
+                "author": {
+                    "id": str(author["_id"]) if author else None,
+                    "full_name": author.get("full_name") if author else "Unknown",
+                    "profile_photo": author.get("profile_photo") if author else None
+                },
+                "images": post.get("images", []),
+                "caption": post.get("caption"),
+                "likes_count": post.get("likes_count", 0),
+                "comments_count": post.get("comments_count", 0),
+                "created_at": post.get("created_at").isoformat() if post.get("created_at") else None
+            })
+    
+    return result
+
 @api_router.get("/posts/{post_id}")
 async def get_post(post_id: str, current_user: dict = Depends(get_current_user)):
     """Get single post with full details"""
@@ -2949,35 +2978,6 @@ async def toggle_save(post_id: str, current_user: dict = Depends(get_current_use
             {"$inc": {"saves_count": 1}}
         )
         return {"saved": True, "saves_count": post.get("saves_count", 0) + 1}
-
-@api_router.get("/posts/saved")
-async def get_saved_posts(skip: int = 0, limit: int = 20, current_user: dict = Depends(get_current_user)):
-    """Get user's saved/bookmarked posts"""
-    user_id = str(current_user["_id"])
-    
-    saved = await db.post_saves.find({"user_id": user_id}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
-    post_ids = [s["post_id"] for s in saved]
-    
-    result = []
-    for pid in post_ids:
-        post = await db.posts.find_one({"_id": ObjectId(pid)})
-        if post:
-            author = await db.users.find_one({"_id": ObjectId(post["user_id"])})
-            result.append({
-                "id": str(post["_id"]),
-                "author": {
-                    "id": str(author["_id"]) if author else None,
-                    "full_name": author.get("full_name") if author else "Unknown",
-                    "profile_photo": author.get("profile_photo") if author else None
-                },
-                "images": post.get("images", []),
-                "caption": post.get("caption"),
-                "likes_count": post.get("likes_count", 0),
-                "comments_count": post.get("comments_count", 0),
-                "created_at": post.get("created_at").isoformat() if post.get("created_at") else None
-            })
-    
-    return result
 
 # ==================== COMMENTS ====================
 
