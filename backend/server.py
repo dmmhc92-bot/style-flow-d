@@ -2019,7 +2019,12 @@ async def update_client(client_id: str, client_data: dict, current_user: dict = 
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Client not found")
     
-    return {"message": "Client updated successfully"}
+    # Return the updated client for immediate UI sync
+    updated_client = await db.clients.find_one({"_id": ObjectId(client_id)})
+    return {
+        "id": str(updated_client["_id"]),
+        **{k: v for k, v in updated_client.items() if k != "_id"}
+    }
 
 @api_router.delete("/clients/{client_id}")
 async def delete_client(client_id: str, current_user: dict = Depends(get_current_user)):
@@ -2086,7 +2091,12 @@ async def update_formula(formula_id: str, formula_data: dict, current_user: dict
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Formula not found")
     
-    return {"message": "Formula updated successfully"}
+    # Return the updated formula for immediate UI sync
+    updated_formula = await db.formulas.find_one({"_id": ObjectId(formula_id)})
+    return {
+        "id": str(updated_formula["_id"]),
+        **{k: v for k, v in updated_formula.items() if k != "_id"}
+    }
 
 @api_router.delete("/formulas/{formula_id}")
 async def delete_formula(formula_id: str, current_user: dict = Depends(get_current_user)):
