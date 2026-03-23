@@ -40,7 +40,11 @@ export default function DashboardScreen() {
   );
   
   const StatCard = ({ title, value, icon, color, onPress }: any) => (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
+    <TouchableOpacity 
+      onPress={onPress} 
+      activeOpacity={0.7}
+      style={styles.statCardWrapper}
+    >
       <Card style={styles.statCard}>
         <View style={[styles.statIconContainer, { backgroundColor: color + '15' }]}>
           <Ionicons name={icon} size={24} color={color} />
@@ -233,10 +237,13 @@ const styles = StyleSheet.create({
     marginHorizontal: -Spacing.xs,
     marginBottom: Spacing.lg,
   },
-  statCard: {
-    width: '48%',
-    marginHorizontal: '1%',
+  statCardWrapper: {
+    width: '50%',
+    paddingHorizontal: Spacing.xs,
     marginBottom: Spacing.md,
+  },
+  statCard: {
+    width: '100%',
     alignItems: 'center',
     paddingVertical: Spacing.lg,
   },

@@ -124,8 +124,8 @@ const carouselStyles = StyleSheet.create({
   postImage: {
     width: CARD_WIDTH,
     height: CARD_WIDTH,
-    marginHorizontal: Spacing.screenPadding,
     borderRadius: Spacing.radiusMedium,
+    backgroundColor: Colors.backgroundSecondary,
   },
   carouselDots: {
     flexDirection: 'row',
@@ -384,7 +384,13 @@ export default function FeedScreen() {
       )}
 
       {/* Image Carousel */}
-      <ImageCarousel images={item.images} postId={item.id} />
+      {item.images && item.images.length > 0 && (
+        <ImageCarousel 
+          images={item.images} 
+          postId={item.id} 
+          onPress={() => router.push(`/post/${item.id}`)}
+        />
+      )}
 
       {/* Actions */}
       <View style={styles.postActions}>
