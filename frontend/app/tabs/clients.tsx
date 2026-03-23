@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,40 +9,22 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { Card } from '../../components/Card';
+import { SyncIndicatorCompact } from '../../components/SyncIndicator';
 import Colors from '../../constants/Colors';
 import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
-import api from '../../utils/api';
+import { useOfflineClients } from '../../hooks/useOfflineData';
 
 export default function ClientsScreen() {
   const router = useRouter();
   
-  const [clients, setClients] = useState([]);
-  const [filteredClients, setFilteredClients] = useState([]);
+  const { clients, loading, refreshing, onRefresh } = useOfflineClients();
+  const [filteredClients, setFilteredClients] = useState(clients);
   const [searchQuery, setSearchQuery] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
-  
-  const loadClients = useCallback(async () => {
-    try {
-      const response = await api.get('/clients');
-      setClients(response.data);
-      setFilteredClients(response.data);
-    } catch (error) {
-      console.error('Failed to load clients:', error);
-    }
-  }, []);
-  
-  // Refresh data when screen comes into focus (handles navigation back)
-  useFocusEffect(
-    useCallback(() => {
-      loadClients();
-    }, [loadClients])
-  );
   
   useEffect(() => {
     if (searchQuery) {
@@ -55,12 +37,6 @@ export default function ClientsScreen() {
       setFilteredClients(clients);
     }
   }, [searchQuery, clients]);
-  
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadClients();
-    setRefreshing(false);
-  };
   
   const renderClient = ({ item }: any) => (
     <Card
@@ -84,6 +60,11 @@ export default function ClientsScreen() {
             {item.is_vip && (
               <Ionicons name="star" size={16} color={Colors.vip} />
             )}
+            {item._pendingSync && (
+              <View style={styles.pendingBadge}>
+                <Ionicons name="cloud-upload-outline" size={12} color={Colors.accent} />
+              </View>
+            )}
           </View>
           {item.email && (
             <Text style={styles.clientDetail}>{item.email}</Text>
@@ -92,7 +73,7 @@ export default function ClientsScreen() {
             <Text style={styles.clientDetail}>{item.phone}</Text>
           )}
           <Text style={styles.clientStats}>
-            {item.visit_count} visit{item.visit_count !== 1 ? 's' : ''}
+            {item.visit_count || 0} visit{item.visit_count !== 1 ? 's' : ''}
           </Text>
         </View>
         
@@ -105,12 +86,15 @@ export default function ClientsScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.title}>Clients</Text>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => router.push('/client/add')}
-        >
-          <Ionicons name="add" size={24} color={Colors.textInverse} />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <SyncIndicatorCompact />
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => router.push('/client/add')}
+          >
+            <Ionicons name="add" size={24} color={Colors.textInverse} />
+          </TouchableOpacity>
+        </View>
       </View>
       
       <View style={styles.searchContainer}>
@@ -127,10 +111,10 @@ export default function ClientsScreen() {
       <FlatList
         data={filteredClients}
         renderItem={renderClient}
-        keyExtractor={(item: any) => item.id}
+        keyExtractor={(item: any) => item.id || item.localId}
         contentContainerStyle={styles.list}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent} />
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
@@ -155,6 +139,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: Spacing.screenPadding,
     paddingVertical: Spacing.md,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   title: {
     fontSize: Typography.h2,
@@ -224,6 +212,9 @@ const styles = StyleSheet.create({
     fontWeight: Typography.semibold,
     color: Colors.text,
     marginRight: Spacing.xs,
+  },
+  pendingBadge: {
+    marginLeft: Spacing.xs,
   },
   clientDetail: {
     fontSize: Typography.bodySmall,

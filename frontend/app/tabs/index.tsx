@@ -8,42 +8,28 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '../../components/Card';
+import { SyncIndicatorCompact } from '../../components/SyncIndicator';
 import Colors from '../../constants/Colors';
 import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
 import { useAuthStore } from '../../store/authStore';
-import api from '../../utils/api';
+import { useOfflineDashboardStats } from '../../hooks/useOfflineData';
+import { useNetwork } from '../../contexts/NetworkContext';
 
 export default function DashboardScreen() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
+  const { stats, loading, refresh } = useOfflineDashboardStats();
+  const { isOnline } = useNetwork();
   
-  const [stats, setStats] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
-  
-  const loadStats = useCallback(async () => {
-    try {
-      const response = await api.get('/dashboard/stats');
-      setStats(response.data);
-    } catch (error) {
-      console.error('Failed to load stats:', error);
-    }
-  }, []);
-  
-  // Refresh dashboard stats when screen comes into focus
-  useFocusEffect(
-    useCallback(() => {
-      loadStats();
-    }, [loadStats])
-  );
   
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadStats();
+    await refresh();
     setRefreshing(false);
   };
   
@@ -71,7 +57,7 @@ export default function DashboardScreen() {
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent} />
         }
       >
         {/* Header */}
@@ -80,12 +66,15 @@ export default function DashboardScreen() {
             <Text style={styles.greeting}>Hello,</Text>
             <Text style={styles.name}>{user?.full_name || 'Stylist'}</Text>
           </View>
-          <TouchableOpacity
-            style={styles.aiButton}
-            onPress={() => router.push('/ai/chat')}
-          >
-            <Ionicons name="sparkles" size={24} color={Colors.accent} />
-          </TouchableOpacity>
+          <View style={styles.headerRight}>
+            <SyncIndicatorCompact />
+            <TouchableOpacity
+              style={styles.aiButton}
+              onPress={() => router.push('/ai/chat')}
+            >
+              <Ionicons name="sparkles" size={24} color={Colors.accent} />
+            </TouchableOpacity>
+          </View>
         </View>
         
         {/* Quick Stats */}
@@ -351,5 +340,9 @@ const styles = StyleSheet.create({
     fontWeight: Typography.medium,
     color: Colors.text,
     textAlign: 'center',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 });

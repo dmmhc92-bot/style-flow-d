@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { storage } from '../utils/storage';
+import { offlineStorage } from '../utils/offlineStorage';
 import api from '../utils/api';
 
 interface User {
@@ -55,6 +56,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await storage.setToken(token);
       await storage.setUserData(user);
       
+      // Set user ID for offline storage
+      if (user.id) {
+        offlineStorage.setUserId(user.id);
+      }
+      
       set({ token, user, isAuthenticated: true });
     } catch (error: any) {
       throw new Error(error.response?.data?.detail || 'Login failed');
@@ -74,6 +80,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       await storage.setToken(token);
       await storage.setUserData(user);
       
+      // Set user ID for offline storage
+      if (user.id) {
+        offlineStorage.setUserId(user.id);
+      }
+      
       set({ token, user, isAuthenticated: true });
     } catch (error: any) {
       throw new Error(error.response?.data?.detail || 'Signup failed');
@@ -81,6 +92,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   
   logout: async () => {
+    // Clear offline data for this user
+    await offlineStorage.clearUserData();
+    offlineStorage.clearUserId();
+    
     await storage.clearAll();
     set({ user: null, token: null, isAuthenticated: false });
   },
@@ -90,8 +105,29 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const token = await storage.getToken();
       
       if (token) {
-        const response = await api.get('/auth/me');
-        set({ user: response.data, token, isAuthenticated: true, isLoading: false });
+        // Try to load from server
+        try {
+          const response = await api.get('/auth/me');
+          const user = response.data;
+          
+          // Set user ID for offline storage
+          if (user.id) {
+            offlineStorage.setUserId(user.id);
+          }
+          
+          set({ user, token, isAuthenticated: true, isLoading: false });
+        } catch (error) {
+          // If server is unavailable, try loading from local storage
+          const cachedUser = await storage.getUserData();
+          if (cachedUser) {
+            if (cachedUser.id) {
+              offlineStorage.setUserId(cachedUser.id);
+            }
+            set({ user: cachedUser, token, isAuthenticated: true, isLoading: false });
+          } else {
+            throw error;
+          }
+        }
       } else {
         set({ isLoading: false });
       }
@@ -117,6 +153,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   deleteAccount: async () => {
     try {
       await api.delete('/auth/delete-account');
+      
+      // Clear offline data
+      await offlineStorage.clearUserData();
+      offlineStorage.clearUserId();
+      
       await storage.clearAll();
       set({ user: null, token: null, isAuthenticated: false });
     } catch (error: any) {

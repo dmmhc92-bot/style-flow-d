@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,43 +8,20 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '../../components/Card';
+import { SyncIndicatorCompact } from '../../components/SyncIndicator';
 import Colors from '../../constants/Colors';
 import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
-import api from '../../utils/api';
+import { useOfflineAppointments } from '../../hooks/useOfflineData';
 import { format } from 'date-fns';
 
 export default function AppointmentsScreen() {
   const router = useRouter();
   
-  const [appointments, setAppointments] = useState([]);
-  const [refreshing, setRefreshing] = useState(false);
-  
-  const loadAppointments = useCallback(async () => {
-    try {
-      const response = await api.get('/appointments');
-      setAppointments(response.data);
-    } catch (error) {
-      console.error('Failed to load appointments:', error);
-    }
-  }, []);
-  
-  // Refresh data when screen comes into focus (handles navigation back)
-  useFocusEffect(
-    useCallback(() => {
-      loadAppointments();
-    }, [loadAppointments])
-  );
-  
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadAppointments();
-    setRefreshing(false);
-  };
+  const { appointments, loading, refreshing, onRefresh } = useOfflineAppointments();
   
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -77,7 +54,12 @@ export default function AppointmentsScreen() {
         </View>
         
         <View style={styles.appointmentInfo}>
-          <Text style={styles.clientName}>{item.client_name || 'Unknown Client'}</Text>
+          <View style={styles.clientRow}>
+            <Text style={styles.clientName}>{item.client_name || 'Unknown Client'}</Text>
+            {item._pendingSync && (
+              <Ionicons name="cloud-upload-outline" size={14} color={Colors.accent} style={styles.syncIcon} />
+            )}
+          </View>
           <Text style={styles.service}>{item.service}</Text>
           <View style={styles.appointmentMeta}>
             <Ionicons name="time-outline" size={14} color={Colors.textSecondary} />
@@ -100,21 +82,24 @@ export default function AppointmentsScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.title}>Appointments</Text>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => router.push('/appointment/add')}
-        >
-          <Ionicons name="add" size={24} color={Colors.textInverse} />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <SyncIndicatorCompact />
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => router.push('/appointment/add')}
+          >
+            <Ionicons name="add" size={24} color={Colors.textInverse} />
+          </TouchableOpacity>
+        </View>
       </View>
       
       <FlatList
         data={appointments}
         renderItem={renderAppointment}
-        keyExtractor={(item: any) => item.id}
+        keyExtractor={(item: any) => item.id || item.localId}
         contentContainerStyle={styles.list}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent} />
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
@@ -139,6 +124,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: Spacing.screenPadding,
     paddingVertical: Spacing.md,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   title: {
     fontSize: Typography.h2,
@@ -185,11 +174,18 @@ const styles = StyleSheet.create({
   appointmentInfo: {
     flex: 1,
   },
+  clientRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   clientName: {
     fontSize: Typography.body,
     fontWeight: Typography.semibold,
     color: Colors.text,
     marginBottom: 2,
+  },
+  syncIcon: {
+    marginLeft: Spacing.xs,
   },
   service: {
     fontSize: Typography.bodySmall,
