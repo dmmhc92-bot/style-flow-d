@@ -75,7 +75,7 @@ export default function AddClientScreen() {
     
     setLoading(true);
     try {
-      await api.post('/clients', {
+      const response = await api.post('/clients', {
         name: name.trim(),
         email: email.trim() || null,
         phone: phone.trim() || null,
@@ -86,12 +86,11 @@ export default function AddClientScreen() {
         is_vip: isVip,
       });
       
-      Alert.alert('Success', 'Client added successfully', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      // Navigate back immediately after successful save
+      // The clients list will refresh via useFocusEffect
+      router.back();
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to add client');
-    } finally {
       setLoading(false);
     }
   };

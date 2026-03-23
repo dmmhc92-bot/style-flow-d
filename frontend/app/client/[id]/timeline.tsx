@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,6 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -55,6 +54,8 @@ export default function ClientTimelineScreen() {
   const [refreshing, setRefreshing] = useState(false);
   
   const loadTimeline = useCallback(async () => {
+    if (!id) return;
+    
     try {
       const response = await api.get(`/clients/${id}/timeline`);
       setClient(response.data.client);
@@ -70,11 +71,9 @@ export default function ClientTimelineScreen() {
     }
   }, [id]);
   
-  useFocusEffect(
-    useCallback(() => {
-      loadTimeline();
-    }, [loadTimeline])
-  );
+  useEffect(() => {
+    loadTimeline();
+  }, [loadTimeline]);
   
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

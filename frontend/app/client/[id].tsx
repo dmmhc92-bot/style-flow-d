@@ -8,7 +8,6 @@ import {
   Alert,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '../../components/Card';
@@ -29,6 +28,8 @@ export default function ClientDetailScreen() {
   const [loading, setLoading] = useState(true);
   
   const loadClientData = useCallback(async () => {
+    if (!id) return;
+    
     try {
       const [clientRes, formulasRes, galleryRes] = await Promise.all([
         api.get(`/clients/${id}`),
@@ -42,18 +43,15 @@ export default function ClientDetailScreen() {
     } catch (error) {
       console.error('Failed to load client data:', error);
       Alert.alert('Error', 'Failed to load client details');
-      router.back();
     } finally {
       setLoading(false);
     }
   }, [id]);
   
-  // Refresh data when screen comes into focus (handles navigation back)
-  useFocusEffect(
-    useCallback(() => {
-      loadClientData();
-    }, [loadClientData])
-  );
+  // Load data on mount and when id changes
+  useEffect(() => {
+    loadClientData();
+  }, [loadClientData]);
   
   const handleDelete = () => {
     Alert.alert(

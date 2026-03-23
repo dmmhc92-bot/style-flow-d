@@ -13,7 +13,6 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '../../../components/Card';
@@ -44,6 +43,8 @@ export default function ClientFormulaScreen() {
   const [saving, setSaving] = useState(false);
 
   const loadData = useCallback(async () => {
+    if (!id) return;
+    
     try {
       const [clientRes, formulasRes] = await Promise.all([
         api.get(`/clients/${id}`),
@@ -59,12 +60,10 @@ export default function ClientFormulaScreen() {
     }
   }, [id]);
 
-  // Refresh data when screen comes into focus
-  useFocusEffect(
-    useCallback(() => {
-      loadData();
-    }, [loadData])
-  );
+  // Load data on mount
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleRefresh = () => {
     setRefreshing(true);
