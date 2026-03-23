@@ -8,6 +8,12 @@
     "scheme": "styleflow",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "owner": "styleflow",
+    "extra": {
+      "eas": {
+        "projectId": "b1fe50c3-30ac-4f2f-b705-38933734178b"
+      }
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.styleflow.app",
