@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '../../components/Card';
@@ -55,12 +56,7 @@ export default function FormulaVaultScreen() {
   const [formulaDetails, setFormulaDetails] = useState('');
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = useCallback(async () => {
     try {
       const [formulasRes, clientsRes] = await Promise.all([
         api.get('/formulas'),
@@ -86,7 +82,14 @@ export default function FormulaVaultScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
+
+  // Refresh data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -127,22 +130,41 @@ export default function FormulaVaultScreen() {
     setSaving(true);
     try {
       if (editingFormula) {
-        await api.put(`/formulas/${editingFormula.id}`, {
+        // Update existing formula - use returned data for instant UI sync
+        const response = await api.put(`/formulas/${editingFormula.id}`, {
           client_id: selectedClient.id,
           formula_name: formulaName.trim(),
           formula_details: formulaDetails.trim(),
         });
+        
+        // Immediately update local state with returned data
+        const updatedFormula = {
+          ...response.data,
+          client_name: selectedClient.name,
+        };
+        setFormulas(prev => prev.map(f => 
+          f.id === editingFormula.id ? updatedFormula : f
+        ));
+        
         Alert.alert('Success', 'Formula updated!');
       } else {
-        await api.post('/formulas', {
+        // Create new formula - use returned data for instant UI sync
+        const response = await api.post('/formulas', {
           client_id: selectedClient.id,
           formula_name: formulaName.trim(),
           formula_details: formulaDetails.trim(),
         });
+        
+        // Immediately add to local state with returned data
+        const newFormula = {
+          ...response.data,
+          client_name: selectedClient.name,
+        };
+        setFormulas(prev => [newFormula, ...prev]);
+        
         Alert.alert('Success', 'Formula saved!');
       }
       setShowModal(false);
-      loadData();
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to save formula');
     } finally {

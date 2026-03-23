@@ -2231,7 +2231,20 @@ async def update_appointment(appointment_id: str, appointment_data: dict, curren
                 }
             )
     
-    return {"message": "Appointment updated successfully"}
+    # Return the updated appointment for immediate UI sync
+    updated_appointment = await db.appointments.find_one({"_id": ObjectId(appointment_id)})
+    
+    # Enrich with client name
+    try:
+        client = await db.clients.find_one({"_id": ObjectId(updated_appointment["client_id"])})
+        updated_appointment["client_name"] = client["name"] if client else None
+    except:
+        updated_appointment["client_name"] = None
+    
+    return {
+        "id": str(updated_appointment["_id"]),
+        **{k: v for k, v in updated_appointment.items() if k != "_id"}
+    }
 
 @api_router.delete("/appointments/{appointment_id}")
 async def delete_appointment(appointment_id: str, current_user: dict = Depends(get_current_user)):

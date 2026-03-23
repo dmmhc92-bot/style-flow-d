@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '../../components/Card';
@@ -24,18 +25,21 @@ export default function DashboardScreen() {
   const [stats, setStats] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
   
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     try {
       const response = await api.get('/dashboard/stats');
       setStats(response.data);
     } catch (error) {
       console.error('Failed to load stats:', error);
     }
-  };
-  
-  useEffect(() => {
-    loadStats();
   }, []);
+  
+  // Refresh dashboard stats when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadStats();
+    }, [loadStats])
+  );
   
   const onRefresh = async () => {
     setRefreshing(true);

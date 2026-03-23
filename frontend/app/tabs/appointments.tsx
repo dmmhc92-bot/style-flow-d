@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '../../components/Card';
@@ -23,18 +24,21 @@ export default function AppointmentsScreen() {
   const [appointments, setAppointments] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   
-  const loadAppointments = async () => {
+  const loadAppointments = useCallback(async () => {
     try {
       const response = await api.get('/appointments');
       setAppointments(response.data);
     } catch (error) {
       console.error('Failed to load appointments:', error);
     }
-  };
-  
-  useEffect(() => {
-    loadAppointments();
   }, []);
+  
+  // Refresh data when screen comes into focus (handles navigation back)
+  useFocusEffect(
+    useCallback(() => {
+      loadAppointments();
+    }, [loadAppointments])
+  );
   
   const onRefresh = async () => {
     setRefreshing(true);

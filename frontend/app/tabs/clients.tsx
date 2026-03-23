@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -26,7 +27,7 @@ export default function ClientsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   
-  const loadClients = async () => {
+  const loadClients = useCallback(async () => {
     try {
       const response = await api.get('/clients');
       setClients(response.data);
@@ -34,11 +35,14 @@ export default function ClientsScreen() {
     } catch (error) {
       console.error('Failed to load clients:', error);
     }
-  };
-  
-  useEffect(() => {
-    loadClients();
   }, []);
+  
+  // Refresh data when screen comes into focus (handles navigation back)
+  useFocusEffect(
+    useCallback(() => {
+      loadClients();
+    }, [loadClients])
+  );
   
   useEffect(() => {
     if (searchQuery) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '../../../components/Card';
@@ -42,11 +43,7 @@ export default function ClientFormulaScreen() {
   const [formulaDetails, setFormulaDetails] = useState('');
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const [clientRes, formulasRes] = await Promise.all([
         api.get(`/clients/${id}`),
@@ -60,7 +57,14 @@ export default function ClientFormulaScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [id]);
+
+  // Refresh data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -90,19 +94,28 @@ export default function ClientFormulaScreen() {
     setSaving(true);
     try {
       if (editingFormula) {
-        await api.put(`/formulas/${editingFormula.id}`, {
+        // Update existing formula - use returned data for instant UI sync
+        const response = await api.put(`/formulas/${editingFormula.id}`, {
           formula_name: formulaName.trim(),
           formula_details: formulaDetails.trim(),
         });
+        
+        // Immediately update local state with returned data
+        setFormulas(prev => prev.map(f => 
+          f.id === editingFormula.id ? response.data : f
+        ));
       } else {
-        await api.post('/formulas', {
+        // Create new formula - use returned data for instant UI sync
+        const response = await api.post('/formulas', {
           client_id: id,
           formula_name: formulaName.trim(),
           formula_details: formulaDetails.trim(),
         });
+        
+        // Immediately add to local state with returned data
+        setFormulas(prev => [response.data, ...prev]);
       }
       setShowModal(false);
-      loadData();
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to save formula');
     } finally {

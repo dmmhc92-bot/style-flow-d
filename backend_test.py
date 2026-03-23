@@ -1,677 +1,458 @@
 #!/usr/bin/env python3
 """
-StyleFlow Backend Testing Suite - User Appeal System
-Testing all appeal endpoints and complete workflow
+StyleFlow Backend API Testing - Real-Time Data Persistence + UI Sync
+Focus: Verify PUT endpoints return full updated objects (not just success messages)
 """
 
 import requests
 import json
 import uuid
 from datetime import datetime, timedelta
+import sys
 
-# Configuration
-BASE_URL = "https://hairflow-app-1.preview.emergentagent.com/api"
+# Backend URL from environment
+BACKEND_URL = "https://hairflow-app-1.preview.emergentagent.com/api"
+
+# Test credentials
 ADMIN_EMAIL = "admin@styleflow.com"
 ADMIN_PASSWORD = "Admin1234!"
 
 class StyleFlowTester:
     def __init__(self):
-        self.base_url = BASE_URL
-        self.admin_token = None
-        self.test_user_token = None
-        self.test_user_id = None
-        self.test_user_email = None
-        self.appeal_id = None
+        self.token = None
+        self.session = requests.Session()
+        self.test_results = []
         
-    def log(self, message):
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}")
+    def log_test(self, test_name, success, details=""):
+        """Log test result"""
+        status = "✅ PASS" if success else "❌ FAIL"
+        print(f"{status}: {test_name}")
+        if details:
+            print(f"   Details: {details}")
+        self.test_results.append({
+            "test": test_name,
+            "success": success,
+            "details": details
+        })
         
-    def make_request(self, method, endpoint, data=None, token=None, params=None):
-        """Make HTTP request with proper error handling"""
-        url = f"{self.base_url}{endpoint}"
-        headers = {"Content-Type": "application/json"}
+    def authenticate(self):
+        """Login and get JWT token"""
+        print("\n=== AUTHENTICATION ===")
         
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-            
-        try:
-            if method == "GET":
-                response = requests.get(url, headers=headers, params=params)
-            elif method == "POST":
-                response = requests.post(url, headers=headers, json=data)
-            elif method == "PUT":
-                response = requests.put(url, headers=headers, json=data)
-            elif method == "PATCH":
-                response = requests.patch(url, headers=headers, json=data)
-            elif method == "DELETE":
-                response = requests.delete(url, headers=headers)
-            else:
-                raise ValueError(f"Unsupported method: {method}")
-                
-            return response
-        except requests.exceptions.RequestException as e:
-            self.log(f"❌ Request failed: {e}")
-            return None
-    
-    def setup_admin_auth(self):
-        """Authenticate as admin"""
-        self.log("🔐 Setting up admin authentication...")
-        
-        response = self.make_request("POST", "/auth/login", {
+        login_data = {
             "email": ADMIN_EMAIL,
             "password": ADMIN_PASSWORD
-        })
+        }
         
-        if response and response.status_code == 200:
-            data = response.json()
-            self.admin_token = data.get("token")  # Changed from access_token to token
-            self.log("✅ Admin authentication successful")
-            return True
-        else:
-            self.log(f"❌ Admin authentication failed: {response.status_code if response else 'No response'}")
-            if response:
-                self.log(f"Response: {response.text}")
-            return False
-    
-    def create_test_user(self):
-        """Create a test user for appeal testing"""
-        self.log("👤 Creating test user...")
-        
-        # Generate unique email
-        unique_id = str(uuid.uuid4())[:8]
-        self.test_user_email = f"testuser_{unique_id}@styleflow.com"
-        
-        response = self.make_request("POST", "/auth/signup", {
-            "email": self.test_user_email,
-            "password": "TestPass123!",
-            "full_name": "Test User Appeal",
-            "business_name": "Test Salon"
-        })
-        
-        if response and response.status_code == 200:  # Changed from 201 to 200
-            data = response.json()
-            self.test_user_token = data.get("token")  # Changed from access_token to token
-            
-            # Get user ID by calling /auth/me endpoint
-            me_response = self.make_request("GET", "/auth/me", token=self.test_user_token)
-            if me_response and me_response.status_code == 200:
-                user_data = me_response.json()
-                self.test_user_id = user_data.get("id")
-                self.log(f"✅ Test user created: {self.test_user_email} (ID: {self.test_user_id})")
-                return True
-            else:
-                self.log("❌ Could not get user ID after signup")
-                return False
-        else:
-            self.log(f"❌ Test user creation failed: {response.status_code if response else 'No response'}")
-            if response:
-                self.log(f"Response: {response.text}")
-            return False
-    
-    def suspend_test_user(self):
-        """Suspend the test user to enable appeal testing"""
-        self.log("⚠️ Suspending test user for appeal testing...")
-        
-        # First, create a report against the user (required for moderation action)
-        report_response = self.make_request("POST", "/report", {
-            "reported_user_id": self.test_user_id,
-            "content_type": "profile",
-            "reason": "spam",
-            "details": "Testing appeal system - creating report for moderation"
-        }, token=self.admin_token)
-        
-        if not (report_response and report_response.status_code == 201):
-            self.log(f"❌ Could not create report: {report_response.status_code if report_response else 'No response'}")
-            if report_response:
-                self.log(f"Response: {report_response.text}")
-            return False
-        
-        self.log("✅ Report created successfully")
-        
-        # Now use admin moderation endpoint to suspend user
-        response = self.make_request("POST", f"/admin/moderation/action/user/{self.test_user_id}", {
-            "action": "suspend",
-            "reason": "Testing appeal system - automated suspension",
-            "duration_hours": 24
-        }, token=self.admin_token)
-        
-        if response and response.status_code == 200:
-            self.log("✅ Test user suspended successfully")
-            return True
-        else:
-            self.log(f"❌ User suspension failed: {response.status_code if response else 'No response'}")
-            if response:
-                self.log(f"Response: {response.text}")
-            return False
-    
-    def test_appeal_submission_validation(self):
-        """Test appeal submission validation rules"""
-        self.log("\n🧪 Testing Appeal Submission Validation...")
-        
-        # Test 1: Submit appeal without moderation action (should fail)
-        self.log("Test 1: Appeal without moderation action")
-        
-        # Create a clean user for this test
-        clean_email = f"clean_{str(uuid.uuid4())[:8]}@styleflow.com"
-        clean_response = self.make_request("POST", "/auth/signup", {
-            "email": clean_email,
-            "password": "TestPass123!",
-            "full_name": "Clean User",
-            "business_name": "Clean Salon"
-        })
-        
-        if clean_response and clean_response.status_code == 200:  # Changed from 201 to 200
-            clean_token = clean_response.json().get("token")  # Changed from access_token to token
-            
-            # Try to submit appeal without moderation action
-            response = self.make_request("POST", "/appeals", {
-                "reason": "I did nothing wrong",
-                "additional_details": "This is a test appeal"
-            }, token=clean_token)
-            
-            if response and response.status_code == 400:
-                self.log("✅ Correctly rejected appeal without moderation action")
-            else:
-                self.log(f"❌ Should reject appeal without moderation action: {response.status_code if response else 'No response'}")
-        
-        # Test 2: Submit valid appeal with suspended user
-        self.log("Test 2: Valid appeal submission")
-        response = self.make_request("POST", "/appeals", {
-            "reason": "I believe this suspension was unfair and I would like to appeal",
-            "additional_details": "I was following all community guidelines and this seems like a mistake"
-        }, token=self.test_user_token)
-        
-        if response and response.status_code == 201:
-            data = response.json()
-            self.appeal_id = data.get("appeal_id")
-            self.log(f"✅ Appeal submitted successfully: {self.appeal_id}")
-        else:
-            self.log(f"❌ Appeal submission failed: {response.status_code if response else 'No response'}")
-            if response:
-                self.log(f"Response: {response.text}")
-            return False
-        
-        # Test 3: Try to submit duplicate appeal (should fail)
-        self.log("Test 3: Duplicate appeal submission")
-        response = self.make_request("POST", "/appeals", {
-            "reason": "Another appeal",
-            "additional_details": "This should be rejected"
-        }, token=self.test_user_token)
-        
-        if response and response.status_code == 400:
-            self.log("✅ Correctly rejected duplicate appeal")
-        else:
-            self.log(f"❌ Should reject duplicate appeal: {response.status_code if response else 'No response'}")
-        
-        return True
-    
-    def test_user_appeal_status(self):
-        """Test user appeal status endpoint"""
-        self.log("\n🧪 Testing User Appeal Status...")
-        
-        # Test appeal status for user with appeal
-        response = self.make_request("GET", "/appeals/me", token=self.test_user_token)
-        
-        if response and response.status_code == 200:
-            data = response.json()
-            if data.get("has_appeal") and data.get("appeal", {}).get("id") == self.appeal_id:
-                self.log("✅ User appeal status returned correctly")
-                self.log(f"   Appeal ID: {data['appeal']['id']}")
-                self.log(f"   Status: {data['appeal']['status']}")
-                self.log(f"   Reason: {data['appeal']['appeal_reason']}")
-            else:
-                self.log(f"❌ Appeal status data incorrect: {data}")
-                return False
-        else:
-            self.log(f"❌ Appeal status check failed: {response.status_code if response else 'No response'}")
-            return False
-        
-        # Test appeal status for user without appeal
-        clean_email = f"noappeals_{str(uuid.uuid4())[:8]}@styleflow.com"
-        clean_response = self.make_request("POST", "/auth/signup", {
-            "email": clean_email,
-            "password": "TestPass123!",
-            "full_name": "No Appeals User",
-            "business_name": "No Appeals Salon"
-        })
-        
-        if clean_response and clean_response.status_code == 200:  # Changed from 201 to 200
-            clean_token = clean_response.json().get("token")  # Changed from access_token to token
-            
-            response = self.make_request("GET", "/appeals/me", token=clean_token)
-            if response and response.status_code == 200:
+        try:
+            response = self.session.post(f"{BACKEND_URL}/auth/login", json=login_data)
+            if response.status_code == 200:
                 data = response.json()
-                if not data.get("has_appeal"):
-                    self.log("✅ Correctly returned no appeal for clean user")
+                self.token = data.get("token")
+                if self.token:
+                    self.session.headers.update({"Authorization": f"Bearer {self.token}"})
+                    self.log_test("Admin Login", True, f"Token obtained: {self.token[:20]}...")
+                    return True
                 else:
-                    self.log(f"❌ Should return no appeal for clean user: {data}")
+                    self.log_test("Admin Login", False, f"No token in response: {data}")
+                    return False
             else:
-                self.log(f"❌ Appeal status check failed for clean user: {response.status_code if response else 'No response'}")
-        
-        return True
-    
-    def test_admin_appeals_queue(self):
-        """Test admin appeals queue endpoint"""
-        self.log("\n🧪 Testing Admin Appeals Queue...")
-        
-        # Test getting all appeals
-        response = self.make_request("GET", "/admin/appeals", token=self.admin_token)
-        
-        if response and response.status_code == 200:
-            appeals = response.json()  # The response is directly a list, not wrapped in {"appeals": [...]}
-            
-            # Find our test appeal
-            test_appeal = None
-            for appeal in appeals:
-                if appeal.get("id") == self.appeal_id:
-                    test_appeal = appeal
-                    break
-            
-            if test_appeal:
-                self.log("✅ Admin appeals queue working correctly")
-                self.log(f"   Found test appeal: {test_appeal['id']}")
-                self.log(f"   User: {test_appeal['user']['name']} ({test_appeal['user']['email']})")
-                self.log(f"   Status: {test_appeal['status']}")
-                self.log(f"   Reason: {test_appeal['appeal_reason']}")
-            else:
-                self.log(f"❌ Test appeal not found in queue: {appeals}")
+                self.log_test("Admin Login", False, f"Status: {response.status_code}, Response: {response.text}")
                 return False
-        else:
-            self.log(f"❌ Admin appeals queue failed: {response.status_code if response else 'No response'}")
+        except Exception as e:
+            self.log_test("Admin Login", False, f"Exception: {str(e)}")
             return False
-        
-        # Test filtering by status
-        response = self.make_request("GET", "/admin/appeals", 
-                                   params={"status": "pending"}, 
-                                   token=self.admin_token)
-        
-        if response and response.status_code == 200:
-            appeals = response.json()  # Direct list response
-            
-            # All appeals should be pending
-            all_pending = all(appeal.get("status") == "pending" for appeal in appeals)
-            if all_pending:
-                self.log("✅ Status filtering working correctly")
-            else:
-                self.log(f"❌ Status filtering failed - found non-pending appeals: {appeals}")
-        else:
-            self.log(f"❌ Status filtering failed: {response.status_code if response else 'No response'}")
-        
-        return True
     
-    def test_admin_appeals_stats(self):
-        """Test admin appeals statistics endpoint"""
-        self.log("\n🧪 Testing Admin Appeals Statistics...")
+    def test_clients_crud_with_full_objects(self):
+        """Test client CRUD operations with full object returns"""
+        print("\n=== CLIENTS CRUD - FULL OBJECT VERIFICATION ===")
         
-        response = self.make_request("GET", "/admin/appeals/stats", token=self.admin_token)
+        # 1. Create a new client (POST)
+        client_data = {
+            "name": f"Test Client {uuid.uuid4().hex[:8]}",
+            "email": f"testclient{uuid.uuid4().hex[:8]}@example.com",
+            "phone": "+1234567890",
+            "photo": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCdABmX/9k=",
+            "notes": "Test client for API testing",
+            "preferences": "Prefers morning appointments",
+            "hair_goals": "Maintain healthy hair",
+            "is_vip": False,
+            "last_visit": None
+        }
         
-        if response and response.status_code == 200:
-            data = response.json()
-            
-            required_fields = ["pending", "under_review", "approved", "denied"]
-            if all(field in data for field in required_fields):
-                self.log("✅ Appeals statistics working correctly")
-                self.log(f"   Pending: {data['pending']}")
-                self.log(f"   Under Review: {data['under_review']}")
-                self.log(f"   Approved: {data['approved']}")
-                self.log(f"   Denied: {data['denied']}")
+        try:
+            response = self.session.post(f"{BACKEND_URL}/clients", json=client_data)
+            if response.status_code == 200:
+                created_client = response.json()
                 
-                # Should have at least 1 pending (our test appeal)
-                if data["pending"] >= 1:
-                    self.log("✅ Pending count includes our test appeal")
-                else:
-                    self.log("❌ Pending count should include our test appeal")
-            else:
-                self.log(f"❌ Missing required fields in stats: {data}")
-                return False
-        else:
-            self.log(f"❌ Appeals statistics failed: {response.status_code if response else 'No response'}")
-            return False
-        
-        return True
-    
-    def test_admin_mark_under_review(self):
-        """Test marking appeal as under review"""
-        self.log("\n🧪 Testing Mark Appeal Under Review...")
-        
-        response = self.make_request("PATCH", f"/admin/appeals/{self.appeal_id}/review", 
-                                   token=self.admin_token)
-        
-        if response and response.status_code == 200:
-            self.log("✅ Appeal marked as under review successfully")
-            
-            # Verify status changed
-            status_response = self.make_request("GET", "/appeals/me", token=self.test_user_token)
-            if status_response and status_response.status_code == 200:
-                data = status_response.json()
-                if data.get("appeal", {}).get("status") == "under_review":
-                    self.log("✅ Appeal status correctly updated to under_review")
-                else:
-                    self.log(f"❌ Appeal status not updated: {data}")
-            else:
-                self.log("❌ Could not verify status update")
-        else:
-            self.log(f"❌ Mark under review failed: {response.status_code if response else 'No response'}")
-            if response:
-                self.log(f"Response: {response.text}")
-            return False
-        
-        return True
-    
-    def test_admin_approve_appeal(self):
-        """Test approving an appeal"""
-        self.log("\n🧪 Testing Appeal Approval...")
-        
-        response = self.make_request("POST", f"/admin/appeals/{self.appeal_id}/action", {
-            "action": "approve",
-            "admin_notes": "Appeal approved - suspension was indeed unfair"
-        }, token=self.admin_token)
-        
-        if response and response.status_code == 200:
-            data = response.json()
-            self.log("✅ Appeal approved successfully")
-            self.log(f"   Message: {data.get('message')}")
-            
-            # Verify user status was restored
-            # Get user profile to check moderation status
-            profile_response = self.make_request("GET", "/auth/me", token=self.test_user_token)
-            if profile_response and profile_response.status_code == 200:
-                user_data = profile_response.json()
-                moderation_status = user_data.get("moderation_status")
-                final_warning = user_data.get("final_warning")
+                # Verify POST returns full object with ID
+                required_fields = ["id", "name", "email", "phone", "photo", "notes", "preferences", "hair_goals", "is_vip", "visit_count", "created_at"]
+                missing_fields = [field for field in required_fields if field not in created_client]
                 
-                if moderation_status == "good_standing" and final_warning:
-                    self.log("✅ User correctly restored to good_standing with final_warning")
+                if not missing_fields and created_client.get("id"):
+                    self.log_test("Client POST - Returns Full Object", True, f"All fields present, ID: {created_client['id']}")
+                    client_id = created_client["id"]
+                    
+                    # 2. Update the client (PUT)
+                    update_data = {
+                        "name": f"Updated Client {uuid.uuid4().hex[:8]}",
+                        "email": created_client["email"],  # Keep same email
+                        "phone": "+9876543210",
+                        "notes": "Updated notes for testing PUT response",
+                        "preferences": "Updated preferences",
+                        "hair_goals": "Updated hair goals",
+                        "is_vip": True
+                    }
+                    
+                    put_response = self.session.put(f"{BACKEND_URL}/clients/{client_id}", json=update_data)
+                    if put_response.status_code == 200:
+                        updated_client = put_response.json()
+                        
+                        # Verify PUT returns full updated object (not just success message)
+                        if isinstance(updated_client, dict) and "message" not in updated_client:
+                            # Check if it contains the updated values
+                            if (updated_client.get("name") == update_data["name"] and 
+                                updated_client.get("phone") == update_data["phone"] and
+                                updated_client.get("notes") == update_data["notes"] and
+                                updated_client.get("is_vip") == True and
+                                updated_client.get("id") == client_id):
+                                
+                                self.log_test("Client PUT - Returns Full Updated Object", True, 
+                                            f"Updated name: {updated_client['name']}, VIP: {updated_client['is_vip']}")
+                            else:
+                                self.log_test("Client PUT - Returns Full Updated Object", False, 
+                                            f"Updated values not reflected correctly: {updated_client}")
+                        else:
+                            self.log_test("Client PUT - Returns Full Updated Object", False, 
+                                        f"PUT returned message instead of object: {updated_client}")
+                    else:
+                        self.log_test("Client PUT - Returns Full Updated Object", False, 
+                                    f"PUT failed with status: {put_response.status_code}")
+                    
+                    # Cleanup
+                    self.session.delete(f"{BACKEND_URL}/clients/{client_id}")
+                    
                 else:
-                    self.log(f"❌ User status not correctly restored: status={moderation_status}, final_warning={final_warning}")
+                    self.log_test("Client POST - Returns Full Object", False, 
+                                f"Missing fields: {missing_fields}, Response: {created_client}")
             else:
-                self.log("❌ Could not verify user status restoration")
+                self.log_test("Client POST - Returns Full Object", False, 
+                            f"Status: {response.status_code}, Response: {response.text}")
+                
+        except Exception as e:
+            self.log_test("Client CRUD Test", False, f"Exception: {str(e)}")
+    
+    def test_formulas_crud_with_full_objects(self):
+        """Test formula CRUD operations with full object returns"""
+        print("\n=== FORMULAS CRUD - FULL OBJECT VERIFICATION ===")
+        
+        # First create a client to link the formula to
+        client_data = {
+            "name": f"Formula Test Client {uuid.uuid4().hex[:8]}",
+            "email": f"formulaclient{uuid.uuid4().hex[:8]}@example.com",
+            "phone": "+1234567890",
+            "notes": "Client for formula testing",
+            "preferences": "",
+            "hair_goals": "",
+            "is_vip": False
+        }
+        
+        try:
+            client_response = self.session.post(f"{BACKEND_URL}/clients", json=client_data)
+            if client_response.status_code != 200:
+                self.log_test("Formula Test - Client Creation", False, "Failed to create test client")
+                return
+                
+            client_id = client_response.json()["id"]
             
-            # Verify appeal status
-            appeal_response = self.make_request("GET", "/appeals/me", token=self.test_user_token)
-            if appeal_response and appeal_response.status_code == 200:
-                appeal_data = appeal_response.json()
-                if appeal_data.get("appeal", {}).get("status") == "approved":
-                    self.log("✅ Appeal status correctly updated to approved")
+            # 1. Create a new formula (POST)
+            formula_data = {
+                "client_id": client_id,
+                "formula_name": f"Test Formula {uuid.uuid4().hex[:8]}",
+                "formula_details": "Original formula details for testing",
+                "date_created": datetime.utcnow().isoformat()
+            }
+            
+            response = self.session.post(f"{BACKEND_URL}/formulas", json=formula_data)
+            if response.status_code == 200:
+                created_formula = response.json()
+                
+                # Verify POST returns full object with ID
+                required_fields = ["id", "client_id", "formula_name", "formula_details", "date_created"]
+                missing_fields = [field for field in required_fields if field not in created_formula]
+                
+                if not missing_fields and created_formula.get("id"):
+                    self.log_test("Formula POST - Returns Full Object", True, f"All fields present, ID: {created_formula['id']}")
+                    formula_id = created_formula["id"]
+                    
+                    # 2. Update the formula (PUT)
+                    update_data = {
+                        "client_id": client_id,
+                        "formula_name": f"Updated Formula {uuid.uuid4().hex[:8]}",
+                        "formula_details": "Updated formula details for testing PUT response"
+                    }
+                    
+                    put_response = self.session.put(f"{BACKEND_URL}/formulas/{formula_id}", json=update_data)
+                    if put_response.status_code == 200:
+                        updated_formula = put_response.json()
+                        
+                        # Verify PUT returns full updated object (not just success message)
+                        if isinstance(updated_formula, dict) and "message" not in updated_formula:
+                            # Check if it contains the updated values
+                            if (updated_formula.get("formula_name") == update_data["formula_name"] and 
+                                updated_formula.get("formula_details") == update_data["formula_details"] and
+                                updated_formula.get("client_id") == client_id and
+                                updated_formula.get("id") == formula_id):
+                                
+                                self.log_test("Formula PUT - Returns Full Updated Object", True, 
+                                            f"Updated name: {updated_formula['formula_name']}")
+                            else:
+                                self.log_test("Formula PUT - Returns Full Updated Object", False, 
+                                            f"Updated values not reflected correctly: {updated_formula}")
+                        else:
+                            self.log_test("Formula PUT - Returns Full Updated Object", False, 
+                                        f"PUT returned message instead of object: {updated_formula}")
+                    else:
+                        self.log_test("Formula PUT - Returns Full Updated Object", False, 
+                                    f"PUT failed with status: {put_response.status_code}")
+                    
+                    # Cleanup
+                    self.session.delete(f"{BACKEND_URL}/formulas/{formula_id}")
+                    
                 else:
-                    self.log(f"❌ Appeal status not updated: {appeal_data}")
-        else:
-            self.log(f"❌ Appeal approval failed: {response.status_code if response else 'No response'}")
-            if response:
-                self.log(f"Response: {response.text}")
-            return False
-        
-        return True
-    
-    def test_appeal_already_processed(self):
-        """Test that processed appeals cannot be processed again"""
-        self.log("\n🧪 Testing Already Processed Appeal...")
-        
-        response = self.make_request("POST", f"/admin/appeals/{self.appeal_id}/action", {
-            "action": "deny",
-            "admin_notes": "This should fail"
-        }, token=self.admin_token)
-        
-        if response and response.status_code == 400:
-            self.log("✅ Correctly rejected processing already processed appeal")
-        else:
-            self.log(f"❌ Should reject processing already processed appeal: {response.status_code if response else 'No response'}")
-            return False
-        
-        return True
-    
-    def test_banned_user_appeal_flow(self):
-        """Test appeal flow for banned user"""
-        self.log("\n🧪 Testing Banned User Appeal Flow...")
-        
-        # Create another test user
-        banned_email = f"banned_{str(uuid.uuid4())[:8]}@styleflow.com"
-        banned_response = self.make_request("POST", "/auth/signup", {
-            "email": banned_email,
-            "password": "TestPass123!",
-            "full_name": "Banned User",
-            "business_name": "Banned Salon"
-        })
-        
-        if not (banned_response and banned_response.status_code == 200):  # Changed from 201 to 200
-            self.log("❌ Could not create banned user for testing")
-            return False
-        
-        banned_data = banned_response.json()
-        banned_token = banned_data.get("token")  # Changed from access_token to token
-        
-        # Get user ID by calling /auth/me endpoint
-        me_response = self.make_request("GET", "/auth/me", token=banned_token)
-        if me_response and me_response.status_code == 200:
-            user_data = me_response.json()
-            banned_user_id = user_data.get("id")
-        else:
-            self.log("❌ Could not get banned user ID")
-            return False
-        
-        # Create a report first, then ban the user
-        report_response = self.make_request("POST", "/report", {
-            "reported_user_id": banned_user_id,
-            "content_type": "profile",
-            "reason": "spam",
-            "details": "Testing banned user appeal flow"
-        }, token=self.admin_token)
-        
-        if not (report_response and report_response.status_code == 201):
-            self.log("❌ Could not create report for banned user")
-            return False
-        
-        # Ban the user
-        ban_response = self.make_request("POST", f"/admin/moderation/action/user/{banned_user_id}", {
-            "action": "ban",
-            "reason": "Testing banned user appeal flow"
-        }, token=self.admin_token)
-        
-        if not (ban_response and ban_response.status_code == 200):
-            self.log("❌ Could not ban user for testing")
-            return False
-        
-        self.log("✅ User banned successfully")
-        
-        # Submit appeal as banned user
-        appeal_response = self.make_request("POST", "/appeals", {
-            "reason": "I believe this ban was unfair",
-            "additional_details": "Testing banned user appeal restoration"
-        }, token=banned_token)
-        
-        if not (appeal_response and appeal_response.status_code == 201):
-            self.log("❌ Banned user could not submit appeal")
-            return False
-        
-        banned_appeal_id = appeal_response.json().get("appeal_id")
-        self.log(f"✅ Banned user appeal submitted: {banned_appeal_id}")
-        
-        # Approve the appeal
-        approve_response = self.make_request("POST", f"/admin/appeals/{banned_appeal_id}/action", {
-            "action": "approve",
-            "admin_notes": "Ban appeal approved for testing"
-        }, token=self.admin_token)
-        
-        if not (approve_response and approve_response.status_code == 200):
-            self.log("❌ Could not approve banned user appeal")
-            return False
-        
-        # Verify user restored to "warned" status with final_warning
-        profile_response = self.make_request("GET", "/auth/me", token=banned_token)
-        if profile_response and profile_response.status_code == 200:
-            user_data = profile_response.json()
-            moderation_status = user_data.get("moderation_status")
-            final_warning = user_data.get("final_warning")
+                    self.log_test("Formula POST - Returns Full Object", False, 
+                                f"Missing fields: {missing_fields}, Response: {created_formula}")
+            else:
+                self.log_test("Formula POST - Returns Full Object", False, 
+                            f"Status: {response.status_code}, Response: {response.text}")
             
-            if moderation_status == "warned" and final_warning:
-                self.log("✅ Banned user correctly restored to warned status with final_warning")
-            else:
-                self.log(f"❌ Banned user not correctly restored: status={moderation_status}, final_warning={final_warning}")
-                return False
-        else:
-            self.log("❌ Could not verify banned user restoration")
-            return False
-        
-        return True
+            # Cleanup client
+            self.session.delete(f"{BACKEND_URL}/clients/{client_id}")
+                
+        except Exception as e:
+            self.log_test("Formula CRUD Test", False, f"Exception: {str(e)}")
     
-    def test_appeal_denial_flow(self):
-        """Test appeal denial flow"""
-        self.log("\n🧪 Testing Appeal Denial Flow...")
+    def test_appointments_crud_with_full_objects(self):
+        """Test appointment CRUD operations with full object returns"""
+        print("\n=== APPOINTMENTS CRUD - FULL OBJECT VERIFICATION ===")
         
-        # Create another test user and suspend them
-        denied_email = f"denied_{str(uuid.uuid4())[:8]}@styleflow.com"
-        denied_response = self.make_request("POST", "/auth/signup", {
-            "email": denied_email,
-            "password": "TestPass123!",
-            "full_name": "Denied User",
-            "business_name": "Denied Salon"
-        })
+        # First create a client to link the appointment to
+        client_data = {
+            "name": f"Appointment Test Client {uuid.uuid4().hex[:8]}",
+            "email": f"appointmentclient{uuid.uuid4().hex[:8]}@example.com",
+            "phone": "+1234567890",
+            "notes": "Client for appointment testing",
+            "preferences": "",
+            "hair_goals": "",
+            "is_vip": False
+        }
         
-        if not (denied_response and denied_response.status_code == 200):  # Changed from 201 to 200
-            self.log("❌ Could not create user for denial testing")
-            return False
-        
-        denied_data = denied_response.json()
-        denied_token = denied_data.get("token")  # Changed from access_token to token
-        
-        # Get user ID by calling /auth/me endpoint
-        me_response = self.make_request("GET", "/auth/me", token=denied_token)
-        if me_response and me_response.status_code == 200:
-            user_data = me_response.json()
-            denied_user_id = user_data.get("id")
-        else:
-            self.log("❌ Could not get denied user ID")
-            return False
-        
-        # Create a report first, then suspend the user
-        report_response = self.make_request("POST", "/report", {
-            "reported_user_id": denied_user_id,
-            "content_type": "profile",
-            "reason": "spam",
-            "details": "Testing appeal denial flow"
-        }, token=self.admin_token)
-        
-        if not (report_response and report_response.status_code == 201):
-            self.log("❌ Could not create report for denied user")
-            return False
-        
-        # Suspend the user
-        suspend_response = self.make_request("POST", f"/admin/moderation/action/user/{denied_user_id}", {
-            "action": "suspend",
-            "reason": "Testing appeal denial flow",
-            "duration_hours": 24
-        }, token=self.admin_token)
-        
-        if not (suspend_response and suspend_response.status_code == 200):
-            self.log("❌ Could not suspend user for denial testing")
-            return False
-        
-        # Submit appeal
-        appeal_response = self.make_request("POST", "/appeals", {
-            "reason": "This suspension is unfair",
-            "additional_details": "Testing denial flow"
-        }, token=denied_token)
-        
-        if not (appeal_response and appeal_response.status_code == 201):
-            self.log("❌ Could not submit appeal for denial testing")
-            return False
-        
-        denied_appeal_id = appeal_response.json().get("appeal_id")
-        
-        # Deny the appeal
-        deny_response = self.make_request("POST", f"/admin/appeals/{denied_appeal_id}/action", {
-            "action": "deny",
-            "admin_notes": "Appeal denied - suspension was justified"
-        }, token=self.admin_token)
-        
-        if not (deny_response and deny_response.status_code == 200):
-            self.log("❌ Could not deny appeal")
-            return False
-        
-        self.log("✅ Appeal denied successfully")
-        
-        # Verify user status unchanged (still suspended)
-        profile_response = self.make_request("GET", "/auth/me", token=denied_token)
-        if profile_response and profile_response.status_code == 200:
-            user_data = profile_response.json()
-            moderation_status = user_data.get("moderation_status")
+        try:
+            client_response = self.session.post(f"{BACKEND_URL}/clients", json=client_data)
+            if client_response.status_code != 200:
+                self.log_test("Appointment Test - Client Creation", False, "Failed to create test client")
+                return
+                
+            client_id = client_response.json()["id"]
+            client_name = client_response.json()["name"]
             
-            if moderation_status == "suspended":
-                self.log("✅ User status correctly unchanged after denial")
+            # 1. Create a new appointment (POST)
+            appointment_date = (datetime.utcnow() + timedelta(days=1)).isoformat()
+            appointment_data = {
+                "client_id": client_id,
+                "appointment_date": appointment_date,
+                "service": "Hair Cut and Style",
+                "duration_minutes": 90,
+                "notes": "Original appointment notes for testing",
+                "status": "scheduled"
+            }
+            
+            response = self.session.post(f"{BACKEND_URL}/appointments", json=appointment_data)
+            if response.status_code == 200:
+                created_appointment = response.json()
+                
+                # Verify POST returns full object with ID and client_name
+                required_fields = ["id", "client_id", "appointment_date", "service", "duration_minutes", "notes", "status", "client_name"]
+                missing_fields = [field for field in required_fields if field not in created_appointment]
+                
+                if not missing_fields and created_appointment.get("id") and created_appointment.get("client_name"):
+                    self.log_test("Appointment POST - Returns Full Object with client_name", True, 
+                                f"All fields present, ID: {created_appointment['id']}, Client: {created_appointment['client_name']}")
+                    appointment_id = created_appointment["id"]
+                    
+                    # 2. Update the appointment (PUT)
+                    new_appointment_date = (datetime.utcnow() + timedelta(days=2)).isoformat()
+                    update_data = {
+                        "client_id": client_id,
+                        "appointment_date": new_appointment_date,
+                        "service": "Hair Cut, Color and Style",
+                        "duration_minutes": 120,
+                        "notes": "Updated appointment notes for testing PUT response",
+                        "status": "scheduled"
+                    }
+                    
+                    put_response = self.session.put(f"{BACKEND_URL}/appointments/{appointment_id}", json=update_data)
+                    if put_response.status_code == 200:
+                        updated_appointment = put_response.json()
+                        
+                        # Verify PUT returns full updated object (not just success message) with client_name enriched
+                        if isinstance(updated_appointment, dict) and "message" not in updated_appointment:
+                            # Check if it contains the updated values and client_name
+                            if (updated_appointment.get("service") == update_data["service"] and 
+                                updated_appointment.get("duration_minutes") == update_data["duration_minutes"] and
+                                updated_appointment.get("notes") == update_data["notes"] and
+                                updated_appointment.get("client_id") == client_id and
+                                updated_appointment.get("id") == appointment_id and
+                                updated_appointment.get("client_name") == client_name):
+                                
+                                self.log_test("Appointment PUT - Returns Full Updated Object with client_name", True, 
+                                            f"Updated service: {updated_appointment['service']}, Client: {updated_appointment['client_name']}")
+                            else:
+                                self.log_test("Appointment PUT - Returns Full Updated Object with client_name", False, 
+                                            f"Updated values not reflected correctly: {updated_appointment}")
+                        else:
+                            self.log_test("Appointment PUT - Returns Full Updated Object with client_name", False, 
+                                        f"PUT returned message instead of object: {updated_appointment}")
+                    else:
+                        self.log_test("Appointment PUT - Returns Full Updated Object with client_name", False, 
+                                    f"PUT failed with status: {put_response.status_code}")
+                    
+                    # Cleanup
+                    self.session.delete(f"{BACKEND_URL}/appointments/{appointment_id}")
+                    
+                else:
+                    self.log_test("Appointment POST - Returns Full Object with client_name", False, 
+                                f"Missing fields: {missing_fields}, Response: {created_appointment}")
             else:
-                self.log(f"❌ User status should remain suspended: {moderation_status}")
-                return False
-        else:
-            self.log("❌ Could not verify user status after denial")
-            return False
+                self.log_test("Appointment POST - Returns Full Object with client_name", False, 
+                            f"Status: {response.status_code}, Response: {response.text}")
+            
+            # Cleanup client
+            self.session.delete(f"{BACKEND_URL}/clients/{client_id}")
+                
+        except Exception as e:
+            self.log_test("Appointment CRUD Test", False, f"Exception: {str(e)}")
+    
+    def test_appointment_status_completion_flow(self):
+        """Test appointment status change to completed and visit count update"""
+        print("\n=== APPOINTMENT COMPLETION FLOW ===")
         
-        # Verify appeal status
-        appeal_status_response = self.make_request("GET", "/appeals/me", token=denied_token)
-        if appeal_status_response and appeal_status_response.status_code == 200:
-            appeal_data = appeal_status_response.json()
-            if appeal_data.get("appeal", {}).get("status") == "denied":
-                self.log("✅ Appeal status correctly updated to denied")
+        # Create a client
+        client_data = {
+            "name": f"Completion Test Client {uuid.uuid4().hex[:8]}",
+            "email": f"completionclient{uuid.uuid4().hex[:8]}@example.com",
+            "phone": "+1234567890",
+            "notes": "Client for completion testing",
+            "preferences": "",
+            "hair_goals": "",
+            "is_vip": False
+        }
+        
+        try:
+            client_response = self.session.post(f"{BACKEND_URL}/clients", json=client_data)
+            if client_response.status_code != 200:
+                self.log_test("Completion Test - Client Creation", False, "Failed to create test client")
+                return
+                
+            client_id = client_response.json()["id"]
+            initial_visit_count = client_response.json().get("visit_count", 0)
+            
+            # Create an appointment
+            appointment_data = {
+                "client_id": client_id,
+                "appointment_date": datetime.utcnow().isoformat(),
+                "service": "Hair Cut",
+                "duration_minutes": 60,
+                "notes": "Test appointment for completion",
+                "status": "scheduled"
+            }
+            
+            appointment_response = self.session.post(f"{BACKEND_URL}/appointments", json=appointment_data)
+            if appointment_response.status_code != 200:
+                self.log_test("Completion Test - Appointment Creation", False, "Failed to create test appointment")
+                return
+                
+            appointment_id = appointment_response.json()["id"]
+            
+            # Update appointment status to completed
+            update_data = {
+                "status": "completed"
+            }
+            
+            put_response = self.session.put(f"{BACKEND_URL}/appointments/{appointment_id}", json=update_data)
+            if put_response.status_code == 200:
+                updated_appointment = put_response.json()
+                
+                if updated_appointment.get("status") == "completed":
+                    self.log_test("Appointment Status Update to Completed", True, 
+                                f"Status updated to: {updated_appointment['status']}")
+                    
+                    # Check if client visit count was incremented
+                    client_check = self.session.get(f"{BACKEND_URL}/clients/{client_id}")
+                    if client_check.status_code == 200:
+                        updated_client = client_check.json()
+                        new_visit_count = updated_client.get("visit_count", 0)
+                        
+                        if new_visit_count == initial_visit_count + 1:
+                            self.log_test("Client Visit Count Increment", True, 
+                                        f"Visit count increased from {initial_visit_count} to {new_visit_count}")
+                        else:
+                            self.log_test("Client Visit Count Increment", False, 
+                                        f"Visit count not incremented correctly: {initial_visit_count} -> {new_visit_count}")
+                    else:
+                        self.log_test("Client Visit Count Increment", False, "Failed to retrieve updated client")
+                else:
+                    self.log_test("Appointment Status Update to Completed", False, 
+                                f"Status not updated correctly: {updated_appointment}")
             else:
-                self.log(f"❌ Appeal status not updated to denied: {appeal_data}")
-                return False
-        
-        return True
+                self.log_test("Appointment Status Update to Completed", False, 
+                            f"PUT failed with status: {put_response.status_code}")
+            
+            # Cleanup
+            self.session.delete(f"{BACKEND_URL}/appointments/{appointment_id}")
+            self.session.delete(f"{BACKEND_URL}/clients/{client_id}")
+                
+        except Exception as e:
+            self.log_test("Appointment Completion Flow Test", False, f"Exception: {str(e)}")
     
     def run_all_tests(self):
-        """Run all appeal system tests"""
-        self.log("🚀 Starting StyleFlow User Appeal System Testing...")
-        self.log(f"Backend URL: {self.base_url}")
+        """Run all tests"""
+        print("StyleFlow Backend API Testing - Real-Time Data Persistence + UI Sync")
+        print("=" * 70)
         
-        tests = [
-            ("Admin Authentication", self.setup_admin_auth),
-            ("Test User Creation", self.create_test_user),
-            ("User Suspension", self.suspend_test_user),
-            ("Appeal Submission Validation", self.test_appeal_submission_validation),
-            ("User Appeal Status", self.test_user_appeal_status),
-            ("Admin Appeals Queue", self.test_admin_appeals_queue),
-            ("Admin Appeals Statistics", self.test_admin_appeals_stats),
-            ("Mark Appeal Under Review", self.test_admin_mark_under_review),
-            ("Appeal Approval", self.test_admin_approve_appeal),
-            ("Already Processed Appeal", self.test_appeal_already_processed),
-            ("Banned User Appeal Flow", self.test_banned_user_appeal_flow),
-            ("Appeal Denial Flow", self.test_appeal_denial_flow),
-        ]
+        if not self.authenticate():
+            print("❌ Authentication failed. Cannot proceed with tests.")
+            return
         
-        passed = 0
-        failed = 0
+        # Run all CRUD tests
+        self.test_clients_crud_with_full_objects()
+        self.test_formulas_crud_with_full_objects()
+        self.test_appointments_crud_with_full_objects()
+        self.test_appointment_status_completion_flow()
         
-        for test_name, test_func in tests:
-            self.log(f"\n{'='*60}")
-            self.log(f"Running: {test_name}")
-            self.log('='*60)
-            
-            try:
-                if test_func():
-                    passed += 1
-                    self.log(f"✅ {test_name} PASSED")
-                else:
-                    failed += 1
-                    self.log(f"❌ {test_name} FAILED")
-            except Exception as e:
-                failed += 1
-                self.log(f"❌ {test_name} FAILED with exception: {e}")
+        # Summary
+        print("\n" + "=" * 70)
+        print("TEST SUMMARY")
+        print("=" * 70)
         
-        # Final Results
-        self.log(f"\n{'='*60}")
-        self.log("🏁 FINAL RESULTS")
-        self.log('='*60)
-        self.log(f"✅ Passed: {passed}")
-        self.log(f"❌ Failed: {failed}")
-        self.log(f"📊 Success Rate: {(passed/(passed+failed)*100):.1f}%")
+        passed = sum(1 for result in self.test_results if result["success"])
+        total = len(self.test_results)
         
-        if failed == 0:
-            self.log("🎉 ALL TESTS PASSED! User Appeal System is working perfectly!")
-        else:
-            self.log(f"⚠️ {failed} test(s) failed. Please review the issues above.")
+        print(f"Total Tests: {total}")
+        print(f"Passed: {passed}")
+        print(f"Failed: {total - passed}")
+        print(f"Success Rate: {(passed/total)*100:.1f}%")
         
-        return failed == 0
+        # List failed tests
+        failed_tests = [result for result in self.test_results if not result["success"]]
+        if failed_tests:
+            print("\n❌ FAILED TESTS:")
+            for test in failed_tests:
+                print(f"  - {test['test']}: {test['details']}")
+        
+        return passed == total
 
 if __name__ == "__main__":
     tester = StyleFlowTester()
     success = tester.run_all_tests()
-    exit(0 if success else 1)
+    sys.exit(0 if success else 1)
