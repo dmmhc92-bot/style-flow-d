@@ -36,6 +36,22 @@ async def get_formulas(client_id: Optional[str] = None, current_user: dict = Dep
     formulas = await db.formulas.find(query).to_list(1000)
     return [FormulaResponse(id=str(f["_id"]), **{k: v for k, v in f.items() if k != "_id"}) for f in formulas]
 
+@router.get("/{formula_id}", response_model=FormulaResponse)
+async def get_formula(formula_id: str, current_user: dict = Depends(get_current_user)):
+    """Get a single formula by ID"""
+    try:
+        formula = await db.formulas.find_one({
+            "_id": ObjectId(formula_id),
+            "user_id": str(current_user["_id"])
+        })
+    except:
+        raise HTTPException(status_code=404, detail="Formula not found")
+    
+    if not formula:
+        raise HTTPException(status_code=404, detail="Formula not found")
+    
+    return FormulaResponse(id=str(formula["_id"]), **{k: v for k, v in formula.items() if k != "_id"})
+
 @router.put("/{formula_id}")
 async def update_formula(formula_id: str, formula_data: dict, current_user: dict = Depends(get_current_user)):
     try:

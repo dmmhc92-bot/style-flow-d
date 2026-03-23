@@ -1,467 +1,230 @@
 #!/usr/bin/env python3
-"""
-StyleFlow Backend Testing - Forgot Password with Resend Email Integration
-Testing comprehensive forgot password flow with email sending via Resend API
-"""
 
 import requests
 import json
-import time
 import sys
-from datetime import datetime, timedelta
-import pymongo
-from bson import ObjectId
+from datetime import datetime
 
-# Configuration
+# Backend URL from environment
 BACKEND_URL = "https://hairflow-app-1.preview.emergentagent.com/api"
-MONGO_URL = "mongodb://localhost:27017"
-DB_NAME = "test_database"
 
-# Test data
-TEST_EMAIL = "testforgot@example.com"
-TEST_PASSWORD = "TestPassword123!"
-NEW_PASSWORD = "NewPassword123!"
-NONEXISTENT_EMAIL = "nonexistent@example.com"
+# Test credentials
+TEST_EMAIL = "admin@styleflow.com"
+TEST_PASSWORD = "Admin1234!"
 
-class StyleFlowForgotPasswordTester:
+class BackendTester:
     def __init__(self):
         self.session = requests.Session()
-        self.session.headers.update({
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-        })
+        self.auth_token = None
+        self.test_results = []
         
-        # MongoDB connection for direct database access
-        try:
-            self.mongo_client = pymongo.MongoClient(MONGO_URL)
-            self.db = self.mongo_client[DB_NAME]
-            print("✅ Connected to MongoDB for direct database access")
-        except Exception as e:
-            print(f"❌ Failed to connect to MongoDB: {e}")
-            self.mongo_client = None
-            self.db = None
-    
-    def cleanup_test_data(self):
-        """Clean up test data before and after tests"""
-        if self.db is not None:
-            try:
-                # Remove test user and password reset records
-                self.db.users.delete_many({"email": TEST_EMAIL})
-                self.db.password_resets.delete_many({"email": TEST_EMAIL})
-                self.db.password_resets.delete_many({"email": NONEXISTENT_EMAIL})
-                print("✅ Cleaned up test data")
-            except Exception as e:
-                print(f"⚠️ Cleanup warning: {e}")
-    
-    def create_test_user(self):
-        """Create a test user for forgot password testing"""
-        print("\n🔧 Creating test user...")
-        
-        user_data = {
-            "email": TEST_EMAIL,
-            "password": TEST_PASSWORD,
-            "full_name": "Test Forgot User",
-            "business_name": "Test Salon"
+    def log_result(self, test_name, status, details=""):
+        """Log test result"""
+        result = {
+            "test": test_name,
+            "status": status,
+            "details": details,
+            "timestamp": datetime.now().isoformat()
         }
-        
-        try:
-            response = self.session.post(f"{BACKEND_URL}/auth/signup", json=user_data)
-            if response.status_code in [200, 201]:
-                print(f"✅ Test user created successfully: {TEST_EMAIL}")
-                return True
-            elif response.status_code == 400 and "already exists" in response.text:
-                print(f"✅ Test user already exists: {TEST_EMAIL}")
-                return True
-            else:
-                print(f"❌ Failed to create test user: {response.status_code} - {response.text}")
-                return False
-        except Exception as e:
-            print(f"❌ Error creating test user: {e}")
-            return False
+        self.test_results.append(result)
+        status_symbol = "✅" if status == "PASS" else "❌"
+        print(f"{status_symbol} {test_name}: {status}")
+        if details:
+            print(f"   Details: {details}")
     
-    def test_forgot_password_valid_email(self):
-        """Test forgot password request with valid email"""
-        print("\n📧 Testing forgot password with valid email...")
-        
+    def authenticate(self):
+        """Authenticate and get JWT token"""
         try:
-            response = self.session.post(
-                f"{BACKEND_URL}/auth/forgot-password",
-                json={"email": TEST_EMAIL}
-            )
+            response = self.session.post(f"{BACKEND_URL}/auth/login", json={
+                "email": TEST_EMAIL,
+                "password": TEST_PASSWORD
+            })
             
             if response.status_code == 200:
                 data = response.json()
-                expected_message = "If email exists, reset instructions sent"
-                
-                if data.get("message") == expected_message:
-                    print("✅ Forgot password request successful")
-                    print(f"   Response: {data['message']}")
-                    
-                    # Check if token was created in database
-                    if self.db is not None:
-                        reset_record = self.db.password_resets.find_one({"email": TEST_EMAIL})
-                        if reset_record:
-                            print("✅ Password reset token created in database")
-                            print(f"   Token expires at: {reset_record['expires_at']}")
-                            return reset_record["token"]
-                        else:
-                            print("❌ No password reset token found in database")
-                            return None
-                    else:
-                        print("⚠️ Cannot verify database token (no DB connection)")
-                        return "mock_token"
+                self.auth_token = data.get("token")  # Changed from "access_token" to "token"
+                if self.auth_token:
+                    self.session.headers.update({"Authorization": f"Bearer {self.auth_token}"})
+                    self.log_result("Authentication", "PASS", f"Successfully logged in as {TEST_EMAIL}")
+                    print(f"   Token: {self.auth_token[:20]}...")
+                    return True
                 else:
-                    print(f"❌ Unexpected response message: {data.get('message')}")
-                    return None
-            else:
-                print(f"❌ Forgot password failed: {response.status_code} - {response.text}")
-                return None
-                
-        except Exception as e:
-            print(f"❌ Error testing forgot password: {e}")
-            return None
-    
-    def test_forgot_password_nonexistent_email(self):
-        """Test forgot password request with non-existent email"""
-        print("\n🔍 Testing forgot password with non-existent email...")
-        
-        try:
-            response = self.session.post(
-                f"{BACKEND_URL}/auth/forgot-password",
-                json={"email": NONEXISTENT_EMAIL}
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                expected_message = "If email exists, reset instructions sent"
-                
-                if data.get("message") == expected_message:
-                    print("✅ Forgot password returns same message for security")
-                    print(f"   Response: {data['message']}")
-                    
-                    # Verify no token was created
-                    if self.db is not None:
-                        reset_record = self.db.password_resets.find_one({"email": NONEXISTENT_EMAIL})
-                        if not reset_record:
-                            print("✅ No token created for non-existent email (correct)")
-                            return True
-                        else:
-                            print("❌ Token was created for non-existent email (security issue)")
-                            return False
-                    else:
-                        print("⚠️ Cannot verify database behavior (no DB connection)")
-                        return True
-                else:
-                    print(f"❌ Unexpected response message: {data.get('message')}")
+                    self.log_result("Authentication", "FAIL", f"No token in response: {data}")
                     return False
             else:
-                print(f"❌ Forgot password failed: {response.status_code} - {response.text}")
+                self.log_result("Authentication", "FAIL", f"Login failed: {response.status_code} - {response.text}")
                 return False
                 
         except Exception as e:
-            print(f"❌ Error testing forgot password with non-existent email: {e}")
+            self.log_result("Authentication", "FAIL", f"Authentication error: {str(e)}")
             return False
     
-    def test_verify_reset_token(self, token):
-        """Test reset token verification"""
-        print(f"\n🔐 Testing reset token verification...")
-        
-        if not token:
-            print("❌ No token provided for verification")
-            return False
-        
+    def test_get_formula_by_id(self):
+        """Test GET /api/formulas/{id} endpoint"""
         try:
-            response = self.session.get(f"{BACKEND_URL}/auth/verify-reset-token/{token}")
+            # First, get list of formulas to find an ID
+            response = self.session.get(f"{BACKEND_URL}/formulas")
             
-            if response.status_code == 200:
-                data = response.json()
-                
-                if data.get("valid") == True and "email" in data:
-                    masked_email = data["email"]
-                    print("✅ Token verification successful")
-                    print(f"   Valid: {data['valid']}")
-                    print(f"   Masked email: {masked_email}")
-                    
-                    # Check if email is properly masked
-                    if "***" in masked_email and "@" in masked_email:
-                        print("✅ Email properly masked for security")
-                        return True
-                    else:
-                        print("⚠️ Email masking might not be working correctly")
-                        return True
-                else:
-                    print(f"❌ Unexpected verification response: {data}")
-                    return False
-            else:
-                print(f"❌ Token verification failed: {response.status_code} - {response.text}")
-                return False
-                
-        except Exception as e:
-            print(f"❌ Error testing token verification: {e}")
-            return False
-    
-    def test_reset_password(self, token):
-        """Test password reset with valid token"""
-        print(f"\n🔄 Testing password reset...")
-        
-        if not token:
-            print("❌ No token provided for password reset")
-            return False
-        
-        try:
-            response = self.session.post(
-                f"{BACKEND_URL}/auth/reset-password",
-                json={
-                    "token": token,
-                    "new_password": NEW_PASSWORD
+            if response.status_code != 200:
+                self.log_result("GET /api/formulas/{id}", "FAIL", f"Could not get formulas list: {response.status_code}")
+                return
+            
+            formulas = response.json()
+            if not formulas:
+                # Create a test formula first
+                test_formula = {
+                    "client_id": "test_client_123",
+                    "formula_name": "Test Formula for ID Test",
+                    "formula_details": "Test formula details for endpoint testing"
                 }
-            )
+                
+                create_response = self.session.post(f"{BACKEND_URL}/formulas", json=test_formula)
+                if create_response.status_code != 200:
+                    self.log_result("GET /api/formulas/{id}", "FAIL", f"Could not create test formula: {create_response.status_code}")
+                    return
+                
+                created_formula = create_response.json()
+                formula_id = created_formula["id"]
+            else:
+                formula_id = formulas[0]["id"]
+            
+            # Now test the GET by ID endpoint
+            response = self.session.get(f"{BACKEND_URL}/formulas/{formula_id}")
+            
+            if response.status_code == 200:
+                formula = response.json()
+                if formula.get("id") == formula_id:
+                    self.log_result("GET /api/formulas/{id}", "PASS", f"Successfully retrieved formula with ID: {formula_id}")
+                else:
+                    self.log_result("GET /api/formulas/{id}", "FAIL", "Formula ID mismatch in response")
+            else:
+                self.log_result("GET /api/formulas/{id}", "FAIL", f"Failed to get formula by ID: {response.status_code} - {response.text}")
+                
+        except Exception as e:
+            self.log_result("GET /api/formulas/{id}", "FAIL", f"Error testing formula by ID: {str(e)}")
+    
+    def test_follow_user(self):
+        """Test POST /api/users/{id}/follow endpoint"""
+        try:
+            # First, discover users to find someone to follow
+            response = self.session.get(f"{BACKEND_URL}/users/discover")
+            
+            if response.status_code != 200:
+                self.log_result("POST /api/users/{id}/follow", "FAIL", f"Could not discover users: {response.status_code}")
+                return
+            
+            users = response.json()
+            if not users:
+                self.log_result("POST /api/users/{id}/follow", "FAIL", "No users found to follow")
+                return
+            
+            # Get the first user to follow
+            target_user = users[0]
+            target_user_id = target_user["id"]
+            
+            # Test following the user
+            response = self.session.post(f"{BACKEND_URL}/users/{target_user_id}/follow")
+            
+            if response.status_code == 200:
+                self.log_result("POST /api/users/{id}/follow", "PASS", f"Successfully followed user: {target_user.get('full_name', target_user_id)}")
+                
+                # Clean up - unfollow the user
+                unfollow_response = self.session.delete(f"{BACKEND_URL}/users/{target_user_id}/follow")
+                if unfollow_response.status_code == 200:
+                    print(f"   Cleanup: Successfully unfollowed user")
+                    
+            elif response.status_code == 400 and "already following" in response.text.lower():
+                # User is already being followed, try to unfollow first then follow again
+                unfollow_response = self.session.delete(f"{BACKEND_URL}/users/{target_user_id}/follow")
+                if unfollow_response.status_code == 200:
+                    # Now try to follow again
+                    follow_response = self.session.post(f"{BACKEND_URL}/users/{target_user_id}/follow")
+                    if follow_response.status_code == 200:
+                        self.log_result("POST /api/users/{id}/follow", "PASS", f"Successfully followed user after unfollowing: {target_user.get('full_name', target_user_id)}")
+                    else:
+                        self.log_result("POST /api/users/{id}/follow", "FAIL", f"Failed to follow after unfollow: {follow_response.status_code}")
+                else:
+                    self.log_result("POST /api/users/{id}/follow", "FAIL", f"User already followed and could not unfollow: {unfollow_response.status_code}")
+            else:
+                self.log_result("POST /api/users/{id}/follow", "FAIL", f"Failed to follow user: {response.status_code} - {response.text}")
+                
+        except Exception as e:
+            self.log_result("POST /api/users/{id}/follow", "FAIL", f"Error testing follow user: {str(e)}")
+    
+    def test_create_post(self):
+        """Test POST /api/posts endpoint"""
+        try:
+            # Create test post data
+            test_post = {
+                "images": ["data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCdABmX/9k="],
+                "caption": "Test post for endpoint verification",
+                "tags": ["#balayage", "#highlights"]
+            }
+            
+            response = self.session.post(f"{BACKEND_URL}/posts", json=test_post)
             
             if response.status_code == 200:
                 data = response.json()
-                
-                if data.get("message") == "Password reset successful":
-                    print("✅ Password reset successful")
-                    print(f"   Response: {data['message']}")
+                post_id = data.get("id")
+                if post_id:
+                    self.log_result("POST /api/posts", "PASS", f"Successfully created post with ID: {post_id}")
                     
-                    # Verify token is deleted from database
-                    if self.db is not None:
-                        reset_record = self.db.password_resets.find_one({"token": token})
-                        if not reset_record:
-                            print("✅ Used token properly deleted from database")
-                        else:
-                            print("❌ Used token still exists in database")
-                            return False
-                    
-                    return True
+                    # Clean up - delete the test post
+                    delete_response = self.session.delete(f"{BACKEND_URL}/posts/{post_id}")
+                    if delete_response.status_code == 200:
+                        print(f"   Cleanup: Successfully deleted test post")
                 else:
-                    print(f"❌ Unexpected reset response: {data}")
-                    return False
+                    self.log_result("POST /api/posts", "FAIL", "Post created but no ID returned")
             else:
-                print(f"❌ Password reset failed: {response.status_code} - {response.text}")
-                return False
+                self.log_result("POST /api/posts", "FAIL", f"Failed to create post: {response.status_code} - {response.text}")
                 
         except Exception as e:
-            print(f"❌ Error testing password reset: {e}")
-            return False
+            self.log_result("POST /api/posts", "FAIL", f"Error testing post creation: {str(e)}")
     
-    def test_login_with_new_password(self):
-        """Test login with the new password"""
-        print(f"\n🔑 Testing login with new password...")
+    def run_tests(self):
+        """Run all specified tests"""
+        print("=" * 60)
+        print("BACKEND ENDPOINT VERIFICATION TESTS")
+        print("=" * 60)
+        print(f"Backend URL: {BACKEND_URL}")
+        print(f"Test User: {TEST_EMAIL}")
+        print("=" * 60)
         
-        try:
-            response = self.session.post(
-                f"{BACKEND_URL}/auth/login",
-                json={
-                    "email": TEST_EMAIL,
-                    "password": NEW_PASSWORD
-                }
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                if "token" in data and "user" in data:
-                    print("✅ Login successful with new password")
-                    print(f"   User: {data['user']['email']}")
-                    print(f"   Token received: {data['token'][:20]}...")
-                    return True
-                else:
-                    print(f"❌ Login response missing token or user: {data}")
-                    return False
-            else:
-                print(f"❌ Login failed with new password: {response.status_code} - {response.text}")
-                return False
-                
-        except Exception as e:
-            print(f"❌ Error testing login with new password: {e}")
-            return False
-    
-    def test_verify_old_token_deleted(self, old_token):
-        """Test that old token is no longer valid"""
-        print(f"\n🗑️ Testing that old token is deleted...")
-        
-        if not old_token:
-            print("❌ No old token provided for verification")
-            return False
-        
-        try:
-            response = self.session.get(f"{BACKEND_URL}/auth/verify-reset-token/{old_token}")
-            
-            if response.status_code == 400:
-                data = response.json()
-                if "Invalid reset token" in data.get("detail", ""):
-                    print("✅ Old token properly invalidated")
-                    print(f"   Error: {data['detail']}")
-                    return True
-                else:
-                    print(f"❌ Unexpected error message: {data}")
-                    return False
-            else:
-                print(f"❌ Old token still valid (should be deleted): {response.status_code}")
-                return False
-                
-        except Exception as e:
-            print(f"❌ Error testing old token deletion: {e}")
-            return False
-    
-    def test_invalid_token_handling(self):
-        """Test handling of invalid tokens"""
-        print(f"\n❌ Testing invalid token handling...")
-        
-        invalid_token = "invalid_token_xxx"
-        
-        try:
-            response = self.session.get(f"{BACKEND_URL}/auth/verify-reset-token/{invalid_token}")
-            
-            if response.status_code == 400:
-                data = response.json()
-                if "Invalid reset token" in data.get("detail", ""):
-                    print("✅ Invalid token properly rejected")
-                    print(f"   Error: {data['detail']}")
-                    return True
-                else:
-                    print(f"❌ Unexpected error message: {data}")
-                    return False
-            else:
-                print(f"❌ Invalid token not properly rejected: {response.status_code}")
-                return False
-                
-        except Exception as e:
-            print(f"❌ Error testing invalid token: {e}")
-            return False
-    
-    def check_backend_logs_for_email(self):
-        """Check backend logs for email sending activity"""
-        print(f"\n📋 Checking backend logs for email activity...")
-        
-        try:
-            import subprocess
-            result = subprocess.run(
-                ["tail", "-n", "50", "/var/log/supervisor/backend.out.log"],
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-            
-            if result.returncode == 0:
-                logs = result.stdout
-                
-                # Look for Resend API activity
-                if "resend" in logs.lower() or "email" in logs.lower():
-                    print("✅ Email-related activity found in logs")
-                    # Print relevant log lines
-                    for line in logs.split('\n'):
-                        if any(keyword in line.lower() for keyword in ['resend', 'email', 'smtp']):
-                            print(f"   📝 {line}")
-                    return True
-                else:
-                    print("⚠️ No obvious email activity in recent logs")
-                    return False
-            else:
-                print(f"⚠️ Could not read backend logs: {result.stderr}")
-                return False
-                
-        except Exception as e:
-            print(f"⚠️ Error checking logs: {e}")
-            return False
-    
-    def run_comprehensive_test(self):
-        """Run comprehensive forgot password testing"""
-        print("🚀 Starting StyleFlow Forgot Password with Resend Email Integration Testing")
-        print("=" * 80)
-        
-        # Cleanup before testing
-        self.cleanup_test_data()
-        
-        test_results = []
-        
-        # Test 1: Create test user
-        print("\n📋 TEST 1: Create Test User")
-        result = self.create_test_user()
-        test_results.append(("Create Test User", result))
-        
-        if not result:
-            print("❌ Cannot proceed without test user")
+        # Authenticate first
+        if not self.authenticate():
+            print("❌ Authentication failed - cannot proceed with tests")
             return
         
-        # Test 2: Forgot password with valid email
-        print("\n📋 TEST 2: Forgot Password (Valid Email)")
-        reset_token = self.test_forgot_password_valid_email()
-        test_results.append(("Forgot Password (Valid Email)", reset_token is not None))
+        print("\nRunning endpoint tests...")
+        print("-" * 40)
         
-        # Test 3: Forgot password with non-existent email
-        print("\n📋 TEST 3: Forgot Password (Non-existent Email)")
-        result = self.test_forgot_password_nonexistent_email()
-        test_results.append(("Forgot Password (Non-existent Email)", result))
+        # Test the three specific endpoints
+        self.test_get_formula_by_id()
+        self.test_follow_user()
+        self.test_create_post()
         
-        # Test 4: Verify reset token
-        if reset_token:
-            print("\n📋 TEST 4: Verify Reset Token")
-            result = self.test_verify_reset_token(reset_token)
-            test_results.append(("Verify Reset Token", result))
-        else:
-            test_results.append(("Verify Reset Token", False))
+        # Summary
+        print("\n" + "=" * 60)
+        print("TEST SUMMARY")
+        print("=" * 60)
         
-        # Test 5: Reset password
-        if reset_token:
-            print("\n📋 TEST 5: Reset Password")
-            result = self.test_reset_password(reset_token)
-            test_results.append(("Reset Password", result))
-        else:
-            test_results.append(("Reset Password", False))
+        passed = sum(1 for result in self.test_results if result["status"] == "PASS")
+        total = len(self.test_results)
         
-        # Test 6: Login with new password
-        print("\n📋 TEST 6: Login with New Password")
-        result = self.test_login_with_new_password()
-        test_results.append(("Login with New Password", result))
+        for result in self.test_results:
+            status_symbol = "✅" if result["status"] == "PASS" else "❌"
+            print(f"{status_symbol} {result['test']}: {result['status']}")
         
-        # Test 7: Verify old token is deleted
-        if reset_token:
-            print("\n📋 TEST 7: Verify Old Token Deleted")
-            result = self.test_verify_old_token_deleted(reset_token)
-            test_results.append(("Verify Old Token Deleted", result))
-        else:
-            test_results.append(("Verify Old Token Deleted", False))
-        
-        # Test 8: Invalid token handling
-        print("\n📋 TEST 8: Invalid Token Handling")
-        result = self.test_invalid_token_handling()
-        test_results.append(("Invalid Token Handling", result))
-        
-        # Test 9: Check backend logs for email activity
-        print("\n📋 TEST 9: Check Backend Logs for Email Activity")
-        result = self.check_backend_logs_for_email()
-        test_results.append(("Check Email Logs", result))
-        
-        # Cleanup after testing
-        self.cleanup_test_data()
-        
-        # Print summary
-        print("\n" + "=" * 80)
-        print("📊 FORGOT PASSWORD TESTING SUMMARY")
-        print("=" * 80)
-        
-        passed = 0
-        total = len(test_results)
-        
-        for test_name, result in test_results:
-            status = "✅ PASS" if result else "❌ FAIL"
-            print(f"{status} {test_name}")
-            if result:
-                passed += 1
-        
-        print(f"\n📈 Results: {passed}/{total} tests passed ({passed/total*100:.1f}%)")
+        print(f"\nOverall Result: {passed}/{total} tests passed")
         
         if passed == total:
-            print("🎉 ALL TESTS PASSED - Forgot Password with Resend Email Integration is working perfectly!")
-        elif passed >= total * 0.8:
-            print("⚠️ MOSTLY WORKING - Some minor issues found")
+            print("🎉 ALL TESTS PASSED!")
         else:
-            print("❌ CRITICAL ISSUES - Forgot Password system needs attention")
+            print("⚠️  Some tests failed - see details above")
         
-        return test_results
+        return passed == total
 
 if __name__ == "__main__":
-    tester = StyleFlowForgotPasswordTester()
-    tester.run_comprehensive_test()
+    tester = BackendTester()
+    success = tester.run_tests()
+    sys.exit(0 if success else 1)
