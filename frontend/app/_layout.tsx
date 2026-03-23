@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { Stack, useRouter } from 'expo-router';
+import React, { useEffect, useCallback } from 'react';
+import { Stack, useRouter, useRootNavigationState } from 'expo-router';
 import * as Linking from 'expo-linking';
 import { useAuthStore } from '../store/authStore';
 import { NetworkProvider } from '../contexts/NetworkContext';
@@ -8,34 +8,14 @@ import LoadingSpinner from '../components/LoadingSpinner';
 export default function RootLayout() {
   const { isLoading, loadUser } = useAuthStore();
   const router = useRouter();
+  const navigationState = useRootNavigationState();
 
   useEffect(() => {
     loadUser();
   }, []);
 
-  // Handle deep links for password reset
-  useEffect(() => {
-    // Handle initial URL (app opened from link)
-    const handleInitialURL = async () => {
-      const url = await Linking.getInitialURL();
-      if (url) {
-        handleDeepLink(url);
-      }
-    };
-
-    // Handle URL when app is already open
-    const subscription = Linking.addEventListener('url', (event) => {
-      handleDeepLink(event.url);
-    });
-
-    handleInitialURL();
-
-    return () => {
-      subscription.remove();
-    };
-  }, []);
-
-  const handleDeepLink = (url: string) => {
+  // Handle deep links for password reset - only when navigation is ready
+  const handleDeepLink = useCallback((url: string) => {
     try {
       const parsed = Linking.parse(url);
       
@@ -54,7 +34,31 @@ export default function RootLayout() {
     } catch (error) {
       console.error('Error parsing deep link:', error);
     }
-  };
+  }, [router]);
+
+  useEffect(() => {
+    // Only handle deep links when navigation is ready
+    if (!navigationState?.key) return;
+
+    // Handle initial URL (app opened from link)
+    const handleInitialURL = async () => {
+      const url = await Linking.getInitialURL();
+      if (url) {
+        handleDeepLink(url);
+      }
+    };
+
+    // Handle URL when app is already open
+    const subscription = Linking.addEventListener('url', (event) => {
+      handleDeepLink(event.url);
+    });
+
+    handleInitialURL();
+
+    return () => {
+      subscription.remove();
+    };
+  }, [navigationState?.key, handleDeepLink]);
 
   if (isLoading) {
     return <LoadingSpinner />;

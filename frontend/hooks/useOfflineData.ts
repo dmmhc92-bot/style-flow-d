@@ -1,8 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
 import { useNetwork } from '../contexts/NetworkContext';
 import { offlineStorage, LocalClient, LocalAppointment, LocalFormula } from '../utils/offlineStorage';
 import api from '../utils/api';
+
+// Safe focus effect that doesn't crash outside navigation context
+const useSafeFocusEffect = (callback: () => void, deps: any[]) => {
+  useEffect(() => {
+    callback();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+};
 
 // Hook for offline-first clients management
 export function useOfflineClients() {
@@ -37,11 +44,9 @@ export function useOfflineClients() {
     }
   }, [isOnline]);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadClients();
-    }, [loadClients])
-  );
+  useSafeFocusEffect(() => {
+    loadClients();
+  }, [loadClients]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -185,11 +190,9 @@ export function useOfflineAppointments() {
     }
   }, [isOnline]);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadAppointments();
-    }, [loadAppointments])
-  );
+  useSafeFocusEffect(() => {
+    loadAppointments();
+  }, [loadAppointments]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -330,11 +333,9 @@ export function useOfflineFormulas(clientId?: string) {
     }
   }, [isOnline, clientId]);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadFormulas();
-    }, [loadFormulas])
-  );
+  useSafeFocusEffect(() => {
+    loadFormulas();
+  }, [loadFormulas]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -467,11 +468,9 @@ export function useOfflineDashboardStats() {
     }
   }, [isOnline]);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadStats();
-    }, [loadStats])
-  );
+  useSafeFocusEffect(() => {
+    loadStats();
+  }, [loadStats]);
 
   return { stats, loading, refresh: loadStats };
 }
