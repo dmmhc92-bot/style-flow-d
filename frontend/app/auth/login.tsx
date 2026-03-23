@@ -137,26 +137,30 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: Spacing.screenPadding,
     paddingVertical: Spacing.xl,
+    justifyContent: 'center',
   },
   header: {
     marginBottom: Spacing.xxl,
+    alignItems: 'center',
   },
   title: {
     fontSize: Typography.h1,
     fontWeight: Typography.bold,
-    color: Colors.text,
+    color: Colors.accent,
     marginBottom: Spacing.sm,
+    letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: Typography.body,
     color: Colors.textSecondary,
   },
   form: {
-    flex: 1,
+    width: '100%',
   },
   forgotPassword: {
     alignSelf: 'flex-end',
     marginBottom: Spacing.lg,
+    padding: Spacing.xs,
   },
   forgotPasswordText: {
     fontSize: Typography.bodySmall,
@@ -170,6 +174,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: Spacing.md,
   },
   signupText: {
     fontSize: Typography.body,
@@ -179,5 +184,6 @@ const styles = StyleSheet.create({
     fontSize: Typography.body,
     color: Colors.accent,
     fontWeight: Typography.semibold,
+    marginLeft: 4,
   },
 });

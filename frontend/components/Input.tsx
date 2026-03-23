@@ -48,16 +48,18 @@ const styles = StyleSheet.create({
   label: {
     fontSize: Typography.bodySmall,
     fontWeight: Typography.medium,
-    color: Colors.text,
+    color: Colors.textSecondary,
     marginBottom: Spacing.sm,
+    marginLeft: 2,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.backgroundSecondary,
-    borderRadius: 12,
+    borderRadius: Spacing.radiusMedium,
     borderWidth: 1,
     borderColor: Colors.border,
+    minHeight: Spacing.inputHeight,
   },
   inputContainerError: {
     borderColor: Colors.error,
@@ -67,11 +69,10 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.md,
     fontSize: Typography.body,
     color: Colors.text,
-    minHeight: Spacing.minTouchTarget,
   },
   inputWithIcon: {
     paddingLeft: Spacing.sm,
@@ -80,6 +81,6 @@ const styles = StyleSheet.create({
     fontSize: Typography.caption,
     color: Colors.error,
     marginTop: Spacing.xs,
-    marginLeft: Spacing.xs,
+    marginLeft: 2,
   },
 });

@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  TouchableOpacity,
+  Pressable,
   Text,
   StyleSheet,
   ActivityIndicator,
@@ -13,11 +13,13 @@ import Typography from '../constants/Typography';
 interface ButtonProps {
   title: string;
   onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'outline' | 'text';
+  variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
   size?: 'small' | 'medium' | 'large';
   loading?: boolean;
   disabled?: boolean;
   icon?: React.ReactNode;
+  iconPosition?: 'left' | 'right';
+  fullWidth?: boolean;
   style?: any;
   textStyle?: any;
 }
@@ -30,22 +32,42 @@ export default function Button({
   loading = false,
   disabled = false,
   icon,
+  iconPosition = 'left',
+  fullWidth = false,
   style,
   textStyle,
 }: ButtonProps) {
-  const getButtonStyle = () => {
-    const baseStyle = [styles.button, styles[`button_${size}`]];
+  const getButtonStyle = (pressed: boolean) => {
+    const baseStyle: any[] = [styles.button, styles[`button_${size}`]];
     
-    if (variant === 'primary') {
-      baseStyle.push(styles.buttonPrimary);
-    } else if (variant === 'secondary') {
-      baseStyle.push(styles.buttonSecondary);
-    } else if (variant === 'outline') {
-      baseStyle.push(styles.buttonOutline);
+    switch (variant) {
+      case 'primary':
+        baseStyle.push(styles.buttonPrimary);
+        break;
+      case 'secondary':
+        baseStyle.push(styles.buttonSecondary);
+        break;
+      case 'outline':
+        baseStyle.push(styles.buttonOutline);
+        break;
+      case 'ghost':
+        baseStyle.push(styles.buttonGhost);
+        break;
+      case 'danger':
+        baseStyle.push(styles.buttonDanger);
+        break;
+    }
+    
+    if (fullWidth) {
+      baseStyle.push(styles.buttonFullWidth);
     }
     
     if (disabled || loading) {
       baseStyle.push(styles.buttonDisabled);
+    }
+    
+    if (pressed && !disabled && !loading) {
+      baseStyle.push(styles.buttonPressed);
     }
     
     if (style) {
@@ -56,14 +78,22 @@ export default function Button({
   };
   
   const getTextStyle = () => {
-    const baseStyle = [styles.text, styles[`text_${size}`]];
+    const baseStyle: any[] = [styles.text, styles[`text_${size}`]];
     
-    if (variant === 'primary') {
-      baseStyle.push(styles.textPrimary);
-    } else if (variant === 'secondary') {
-      baseStyle.push(styles.textSecondary);
-    } else if (variant === 'outline') {
-      baseStyle.push(styles.textOutline);
+    switch (variant) {
+      case 'primary':
+        baseStyle.push(styles.textPrimary);
+        break;
+      case 'secondary':
+        baseStyle.push(styles.textSecondary);
+        break;
+      case 'outline':
+      case 'ghost':
+        baseStyle.push(styles.textOutline);
+        break;
+      case 'danger':
+        baseStyle.push(styles.textDanger);
+        break;
     }
     
     if (textStyle) {
@@ -73,22 +103,33 @@ export default function Button({
     return baseStyle;
   };
   
+  const renderContent = () => {
+    if (loading) {
+      return (
+        <ActivityIndicator 
+          color={variant === 'outline' || variant === 'ghost' ? Colors.accent : Colors.buttonText} 
+          size="small"
+        />
+      );
+    }
+    
+    return (
+      <View style={styles.content}>
+        {icon && iconPosition === 'left' && <View style={styles.iconLeft}>{icon}</View>}
+        <Text style={getTextStyle()}>{title}</Text>
+        {icon && iconPosition === 'right' && <View style={styles.iconRight}>{icon}</View>}
+      </View>
+    );
+  };
+  
   return (
-    <TouchableOpacity
-      style={getButtonStyle()}
+    <Pressable
+      style={({ pressed }) => getButtonStyle(pressed)}
       onPress={onPress}
       disabled={disabled || loading}
-      activeOpacity={0.85}
     >
-      {loading ? (
-        <ActivityIndicator color={variant === 'outline' ? Colors.accent : Colors.textInverse} />
-      ) : (
-        <View style={styles.content}>
-          {icon && <View style={styles.icon}>{icon}</View>}
-          <Text style={getTextStyle()}>{title}</Text>
-        </View>
-      )}
-    </TouchableOpacity>
+      {renderContent()}
+    </Pressable>
   );
 }
 
@@ -100,25 +141,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   button_small: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
     minHeight: 36,
   },
   button_medium: {
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    minHeight: 48,
+    paddingVertical: Spacing.sm + 4,
+    paddingHorizontal: Spacing.lg,
+    minHeight: Spacing.buttonHeight,
   },
   button_large: {
-    paddingVertical: 16,
-    paddingHorizontal: 32,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xl,
     minHeight: 56,
   },
   buttonPrimary: {
     backgroundColor: Colors.accent,
   },
   buttonSecondary: {
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.backgroundSecondary,
     borderWidth: 1,
     borderColor: Colors.border,
   },
@@ -127,22 +168,36 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: Colors.accent,
   },
+  buttonGhost: {
+    backgroundColor: 'transparent',
+  },
+  buttonDanger: {
+    backgroundColor: Colors.error,
+  },
+  buttonFullWidth: {
+    width: '100%',
+  },
   buttonDisabled: {
-    opacity: 0.4,
+    opacity: 0.5,
+  },
+  buttonPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
   },
   content: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  icon: {
-    marginRight: 8,
+  iconLeft: {
+    marginRight: Spacing.sm,
+  },
+  iconRight: {
+    marginLeft: Spacing.sm,
   },
   text: {
     fontWeight: Typography.semibold,
     textAlign: 'center',
-    letterSpacing: Typography.letterSpacingWide,
-    textTransform: 'uppercase',
   },
   text_small: {
     fontSize: Typography.bodySmall,
@@ -154,12 +209,15 @@ const styles = StyleSheet.create({
     fontSize: Typography.h4,
   },
   textPrimary: {
-    color: Colors.textInverse,
+    color: Colors.buttonText,
   },
   textSecondary: {
     color: Colors.text,
   },
   textOutline: {
     color: Colors.accent,
+  },
+  textDanger: {
+    color: Colors.text,
   },
 });
