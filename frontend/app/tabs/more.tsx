@@ -189,21 +189,27 @@ export default function MoreScreen() {
           <Text style={styles.sectionTitle}>Support & Legal</Text>
           <Card style={styles.menuCard}>
             <MenuItem
-              icon="help-circle"
-              title="Support"
-              onPress={() => Linking.openURL('https://styleflow.app/support')}
+              icon="chatbubbles"
+              title="Help & Support"
+              onPress={() => router.push('/support')}
             />
             <View style={styles.divider} />
             <MenuItem
-              icon="document-text"
-              title="Privacy Policy"
-              onPress={() => Linking.openURL('https://styleflow.app/privacy')}
+              icon="mail"
+              title="Contact Us"
+              onPress={() => Linking.openURL('mailto:styleflowsupport@gmail.com')}
             />
             <View style={styles.divider} />
             <MenuItem
               icon="shield-checkmark"
+              title="Privacy Policy"
+              onPress={() => router.push('/privacy')}
+            />
+            <View style={styles.divider} />
+            <MenuItem
+              icon="document-text"
               title="Terms of Service"
-              onPress={() => Linking.openURL('https://styleflow.app/terms')}
+              onPress={() => router.push('/terms')}
             />
           </Card>
         </View>
