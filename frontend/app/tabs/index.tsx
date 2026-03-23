@@ -11,19 +11,16 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '../../components/Card';
-import { SyncIndicatorCompact } from '../../components/SyncIndicator';
 import Colors from '../../constants/Colors';
 import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
 import { useAuthStore } from '../../store/authStore';
 import { useOfflineDashboardStats } from '../../hooks/useOfflineData';
-import { useNetwork } from '../../contexts/NetworkContext';
 
 export default function DashboardScreen() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
   const { stats, loading, refresh } = useOfflineDashboardStats();
-  const { isOnline } = useNetwork();
   
   const [refreshing, setRefreshing] = useState(false);
   
@@ -66,15 +63,12 @@ export default function DashboardScreen() {
             <Text style={styles.greeting}>Hello,</Text>
             <Text style={styles.name}>{user?.full_name || 'Stylist'}</Text>
           </View>
-          <View style={styles.headerRight}>
-            <SyncIndicatorCompact />
-            <TouchableOpacity
-              style={styles.aiButton}
-              onPress={() => router.push('/ai/chat')}
-            >
-              <Ionicons name="sparkles" size={24} color={Colors.accent} />
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={styles.aiButton}
+            onPress={() => router.push('/ai/chat')}
+          >
+            <Ionicons name="sparkles" size={24} color={Colors.accent} />
+          </TouchableOpacity>
         </View>
         
         {/* Quick Stats */}

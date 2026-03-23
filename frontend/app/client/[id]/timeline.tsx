@@ -15,7 +15,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { Card } from '../../../components/Card';
 import Button from '../../../components/Button';
-import { SyncIndicatorCompact } from '../../../components/SyncIndicator';
 import Colors from '../../../constants/Colors';
 import Spacing from '../../../constants/Spacing';
 import Typography from '../../../constants/Typography';
@@ -220,7 +219,7 @@ export default function ClientTimelineScreen() {
           <Ionicons name="arrow-back" size={24} color={Colors.text} />
         </TouchableOpacity>
         <Text style={styles.title}>Timeline</Text>
-        <SyncIndicatorCompact />
+        <View style={{ width: 24 }} />
       </View>
       
       <FlatList

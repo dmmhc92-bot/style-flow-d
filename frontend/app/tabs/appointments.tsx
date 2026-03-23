@@ -11,7 +11,6 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '../../components/Card';
-import { SyncIndicatorCompact } from '../../components/SyncIndicator';
 import Colors from '../../constants/Colors';
 import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
@@ -54,12 +53,7 @@ export default function AppointmentsScreen() {
         </View>
         
         <View style={styles.appointmentInfo}>
-          <View style={styles.clientRow}>
-            <Text style={styles.clientName}>{item.client_name || 'Unknown Client'}</Text>
-            {item._pendingSync && (
-              <Ionicons name="cloud-upload-outline" size={14} color={Colors.accent} style={styles.syncIcon} />
-            )}
-          </View>
+          <Text style={styles.clientName}>{item.client_name || 'Unknown Client'}</Text>
           <Text style={styles.service}>{item.service}</Text>
           <View style={styles.appointmentMeta}>
             <Ionicons name="time-outline" size={14} color={Colors.textSecondary} />
@@ -82,15 +76,12 @@ export default function AppointmentsScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.title}>Appointments</Text>
-        <View style={styles.headerRight}>
-          <SyncIndicatorCompact />
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={() => router.push('/appointment/add')}
-          >
-            <Ionicons name="add" size={24} color={Colors.textInverse} />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={styles.addButton}
+          onPress={() => router.push('/appointment/add')}
+        >
+          <Ionicons name="add" size={24} color={Colors.textInverse} />
+        </TouchableOpacity>
       </View>
       
       <FlatList
@@ -174,18 +165,11 @@ const styles = StyleSheet.create({
   appointmentInfo: {
     flex: 1,
   },
-  clientRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
   clientName: {
     fontSize: Typography.body,
     fontWeight: Typography.semibold,
     color: Colors.text,
     marginBottom: 2,
-  },
-  syncIcon: {
-    marginLeft: Spacing.xs,
   },
   service: {
     fontSize: Typography.bodySmall,

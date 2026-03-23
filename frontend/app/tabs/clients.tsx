@@ -13,7 +13,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { Card } from '../../components/Card';
-import { SyncIndicatorCompact } from '../../components/SyncIndicator';
 import Colors from '../../constants/Colors';
 import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
@@ -72,11 +71,6 @@ export default function ClientsScreen() {
               <Ionicons name="star" size={16} color={Colors.vip} />
             )}
             {getRebookStatusIcon(item.rebook_status)}
-            {item._pendingSync && (
-              <View style={styles.pendingBadge}>
-                <Ionicons name="cloud-upload-outline" size={12} color={Colors.accent} />
-              </View>
-            )}
           </View>
           {item.email && (
             <Text style={styles.clientDetail}>{item.email}</Text>
@@ -100,15 +94,12 @@ export default function ClientsScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.title}>Clients</Text>
-        <View style={styles.headerRight}>
-          <SyncIndicatorCompact />
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={() => router.push('/client/add')}
-          >
-            <Ionicons name="add" size={24} color={Colors.textInverse} />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={styles.addButton}
+          onPress={() => router.push('/client/add')}
+        >
+          <Ionicons name="add" size={24} color={Colors.textInverse} />
+        </TouchableOpacity>
       </View>
       
       <View style={styles.searchContainer}>
@@ -226,9 +217,6 @@ const styles = StyleSheet.create({
     fontWeight: Typography.semibold,
     color: Colors.text,
     marginRight: Spacing.xs,
-  },
-  pendingBadge: {
-    marginLeft: Spacing.xs,
   },
   clientDetail: {
     fontSize: Typography.bodySmall,
