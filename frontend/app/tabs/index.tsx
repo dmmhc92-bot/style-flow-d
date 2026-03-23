@@ -80,7 +80,7 @@ export default function DashboardScreen() {
             value={stats?.today_appointments || 0}
             icon="calendar-outline"
             color={Colors.info}
-            onPress={() => router.push('/tabs/calendar')}
+            onPress={() => router.push('/tabs/appointments')}
           />
           <StatCard
             title="Total Clients"
