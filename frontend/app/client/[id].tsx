@@ -152,7 +152,7 @@ export default function ClientDetailScreen() {
           
           <TouchableOpacity
             style={styles.actionButton}
-            onPress={() => Alert.alert('Coming Soon', 'Add formula feature')}
+            onPress={() => router.push(`/client/${id}/formula`)}
           >
             <Ionicons name="flask" size={24} color={Colors.accent} />
             <Text style={styles.actionText}>Formula</Text>
@@ -160,7 +160,7 @@ export default function ClientDetailScreen() {
           
           <TouchableOpacity
             style={styles.actionButton}
-            onPress={() => Alert.alert('Coming Soon', 'Add photos feature')}
+            onPress={() => router.push(`/client/${id}/photos`)}
           >
             <Ionicons name="camera" size={24} color={Colors.accent} />
             <Text style={styles.actionText}>Photos</Text>
@@ -168,10 +168,10 @@ export default function ClientDetailScreen() {
           
           <TouchableOpacity
             style={styles.actionButton}
-            onPress={() => Alert.alert('Coming Soon', 'Add income feature')}
+            onPress={() => router.push(`/client/${id}/visits`)}
           >
-            <Ionicons name="cash" size={24} color={Colors.accent} />
-            <Text style={styles.actionText}>Income</Text>
+            <Ionicons name="time" size={24} color={Colors.accent} />
+            <Text style={styles.actionText}>Visits</Text>
           </TouchableOpacity>
         </View>
         
