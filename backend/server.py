@@ -3756,20 +3756,20 @@ async def update_signature_styles(styles: List[str], current_user: dict = Depend
 @api_router.get("/support")
 async def get_support():
     return {
-        "email": "support@styleflow.app",
-        "website": "https://styleflow.app/support"
+        "email": f"support@{APP_DOMAIN}",
+        "website": f"https://{APP_DOMAIN}/support"
     }
 
 @api_router.get("/privacy-policy")
 async def get_privacy_policy():
     return {
-        "url": "https://styleflow.app/privacy"
+        "url": f"https://{APP_DOMAIN}/privacy"
     }
 
 @api_router.get("/terms-of-service")
 async def get_terms():
     return {
-        "url": "https://styleflow.app/terms"
+        "url": f"https://{APP_DOMAIN}/terms"
     }
 
 # Include the router in the main app
