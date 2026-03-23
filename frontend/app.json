@@ -11,6 +11,9 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.styleflow.app",
+      "associatedDomains": [
+        "applinks:homestyleflowapp.com"
+      ],
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Upload client photos to your gallery",
         "NSCameraUsageDescription": "Take before & after photos of your clients",
@@ -24,6 +27,20 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.styleflow.app",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "homestyleflowapp.com",
+              "pathPrefix": "/reset-password"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
       "permissions": [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",

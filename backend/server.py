@@ -14,6 +14,8 @@ import jwt
 import bcrypt
 import json
 import asyncio
+import secrets
+import resend
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 ROOT_DIR = Path(__file__).parent
@@ -31,6 +33,14 @@ JWT_EXPIRATION = int(os.environ['JWT_EXPIRATION_MINUTES'])
 
 # OpenAI Configuration
 EMERGENT_LLM_KEY = os.environ['EMERGENT_LLM_KEY']
+
+# Resend Configuration
+RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
+resend.api_key = RESEND_API_KEY
+
+# App deep link scheme
+APP_SCHEME = "styleflow"
+APP_DOMAIN = "homestyleflowapp.com"
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -139,7 +149,7 @@ class PasswordReset(BaseModel):
     email: EmailStr
 
 class PasswordResetConfirm(BaseModel):
-    email: EmailStr
+    token: str
     new_password: str
 
 class ClientCreate(BaseModel):
@@ -458,26 +468,140 @@ async def login(credentials: UserLogin):
 async def forgot_password(request: PasswordReset):
     user = await db.users.find_one({"email": request.email})
     if not user:
-        # Don't reveal if email exists
+        # Don't reveal if email exists - security best practice
         return {"message": "If email exists, reset instructions sent"}
     
-    # In production, send email with reset link
-    # For now, just return success
+    # Generate secure reset token
+    reset_token = secrets.token_urlsafe(32)
+    expires_at = datetime.utcnow() + timedelta(hours=1)  # Token valid for 1 hour
+    
+    # Store reset token in database
+    await db.password_resets.delete_many({"email": request.email})  # Remove old tokens
+    await db.password_resets.insert_one({
+        "email": request.email,
+        "token": reset_token,
+        "expires_at": expires_at,
+        "created_at": datetime.utcnow()
+    })
+    
+    # Create deep link for app (iOS universal link)
+    # Format: https://homestyleflowapp.com/reset-password?token=xxx
+    reset_link = f"https://{APP_DOMAIN}/reset-password?token={reset_token}"
+    
+    # Send email via Resend
+    try:
+        email_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #1a1a1a; color: #ffffff; padding: 40px 20px; margin: 0;">
+            <div style="max-width: 480px; margin: 0 auto; background-color: #2a2a2a; border-radius: 16px; padding: 32px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+                <div style="text-align: center; margin-bottom: 24px;">
+                    <h1 style="color: #8BA889; margin: 0; font-size: 28px;">StyleFlow</h1>
+                    <p style="color: #888888; margin: 8px 0 0 0; font-size: 14px;">Password Reset Request</p>
+                </div>
+                
+                <p style="color: #ffffff; font-size: 16px; line-height: 1.6; margin-bottom: 24px;">
+                    Hi {user.get('full_name', 'there')},
+                </p>
+                
+                <p style="color: #cccccc; font-size: 15px; line-height: 1.6; margin-bottom: 24px;">
+                    We received a request to reset your password. Tap the button below to create a new password:
+                </p>
+                
+                <div style="text-align: center; margin: 32px 0;">
+                    <a href="{reset_link}" style="display: inline-block; background-color: #8BA889; color: #1a1a1a; text-decoration: none; padding: 14px 32px; border-radius: 12px; font-weight: 600; font-size: 16px;">
+                        Reset Password
+                    </a>
+                </div>
+                
+                <p style="color: #888888; font-size: 13px; line-height: 1.6; margin-bottom: 16px;">
+                    This link will expire in 1 hour for security reasons.
+                </p>
+                
+                <p style="color: #888888; font-size: 13px; line-height: 1.6;">
+                    If you didn't request this password reset, you can safely ignore this email. Your password will remain unchanged.
+                </p>
+                
+                <hr style="border: none; border-top: 1px solid #444444; margin: 32px 0;">
+                
+                <p style="color: #666666; font-size: 12px; text-align: center; margin: 0;">
+                    © {datetime.utcnow().year} StyleFlow. All rights reserved.
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+        
+        params = {
+            "from": f"StyleFlow <no-reply@{APP_DOMAIN}>",
+            "to": [request.email],
+            "subject": "Reset Your StyleFlow Password",
+            "html": email_html,
+        }
+        
+        resend.Emails.send(params)
+        
+    except Exception as e:
+        logging.error(f"Failed to send reset email: {e}")
+        # Still return success to not reveal if email exists
+    
     return {"message": "If email exists, reset instructions sent"}
 
 @api_router.post("/auth/reset-password")
 async def reset_password(request: PasswordResetConfirm):
-    user = await db.users.find_one({"email": request.email})
+    # Find the reset token
+    reset_record = await db.password_resets.find_one({"token": request.token})
+    
+    if not reset_record:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    
+    # Check if token has expired
+    if reset_record["expires_at"] < datetime.utcnow():
+        # Delete expired token
+        await db.password_resets.delete_one({"token": request.token})
+        raise HTTPException(status_code=400, detail="Reset token has expired. Please request a new one.")
+    
+    # Find the user
+    user = await db.users.find_one({"email": reset_record["email"]})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
+    # Validate password
+    if len(request.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    
+    # Update password
     hashed_password = hash_password(request.new_password)
     await db.users.update_one(
-        {"email": request.email},
+        {"email": reset_record["email"]},
         {"$set": {"password": hashed_password}}
     )
     
+    # Delete the used token
+    await db.password_resets.delete_one({"token": request.token})
+    
     return {"message": "Password reset successful"}
+
+@api_router.get("/auth/verify-reset-token/{token}")
+async def verify_reset_token(token: str):
+    """Verify if a reset token is valid before showing reset form"""
+    reset_record = await db.password_resets.find_one({"token": token})
+    
+    if not reset_record:
+        raise HTTPException(status_code=400, detail="Invalid reset token")
+    
+    if reset_record["expires_at"] < datetime.utcnow():
+        await db.password_resets.delete_one({"token": token})
+        raise HTTPException(status_code=400, detail="Reset token has expired")
+    
+    return {
+        "valid": True,
+        "email": reset_record["email"][:3] + "***" + reset_record["email"][reset_record["email"].index("@"):]  # Masked email
+    }
 
 @api_router.delete("/auth/delete-account")
 async def delete_account(current_user: dict = Depends(get_current_user)):
