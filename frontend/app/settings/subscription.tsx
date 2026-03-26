@@ -17,12 +17,8 @@ import { Card } from '../../components/Card';
 import Colors from '../../constants/Colors';
 import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
-import { useSubscriptionStore } from '../../store/subscriptionStore';
+import { useSubscriptionStore, useSubscriptionInfo } from '../../store/subscriptionStore';
 import { useAuthStore } from '../../store/authStore';
-
-// Demo pricing when RevenueCat not configured
-const DEMO_PRICE = '$9.99';
-const DEMO_PERIOD = 'month';
 
 export default function SubscriptionScreen() {
   const router = useRouter();
@@ -36,47 +32,67 @@ export default function SubscriptionScreen() {
     configure,
     purchasePackage,
     restorePurchases,
-    clearError
+    clearError,
+    identifyUser
   } = useSubscriptionStore();
+  
+  // Get dynamic pricing info
+  const { price, period, title, expirationDate } = useSubscriptionInfo();
 
   const [isRestoring, setIsRestoring] = useState(false);
-  const [purchaseSuccess, setPurchaseSuccess] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
 
   useEffect(() => {
-    // Initialize subscription system with user ID
-    configure(user?.id);
+    initializeSubscription();
   }, [user?.id]);
+
+  const initializeSubscription = async () => {
+    setIsInitializing(true);
+    try {
+      // Configure RevenueCat with user ID for tracking
+      if (user?.id) {
+        await identifyUser(user.id);
+      } else {
+        await configure();
+      }
+    } catch (e) {
+      console.error('Subscription init error:', e);
+    } finally {
+      setIsInitializing(false);
+    }
+  };
 
   useEffect(() => {
     if (error) {
-      Alert.alert('Error', error, [
+      Alert.alert('Subscription Error', error, [
         { text: 'OK', onPress: clearError }
       ]);
     }
   }, [error]);
 
   const handlePurchase = async () => {
-    // Demo mode - show alert
     if (packages.length === 0) {
       Alert.alert(
-        'Demo Mode',
-        'RevenueCat API key not configured. In production, this will connect to your subscription product.\n\nTo test, add EXPO_PUBLIC_REVENUECAT_KEY to your environment.',
+        'No Products Available',
+        'Subscription products are not available at this time. Please try again later.',
         [{ text: 'OK' }]
       );
       return;
     }
 
+    // Find monthly package (or first available)
     const monthlyPackage = packages.find(p => 
-      p.packageType === 'MONTHLY' || p.identifier.includes('monthly')
+      p.packageType === 'MONTHLY' || 
+      p.identifier.toLowerCase().includes('monthly') ||
+      p.identifier === '$rc_monthly'
     ) || packages[0];
 
     if (monthlyPackage) {
       const success = await purchasePackage(monthlyPackage);
       if (success) {
-        setPurchaseSuccess(true);
         Alert.alert(
-          'Success!',
-          'Welcome to StyleFlow Pro! You now have access to all premium features.',
+          'Welcome to StyleFlow Pro!',
+          'Thank you for subscribing! You now have access to all premium features.',
           [{ text: 'Continue', onPress: () => router.back() }]
         );
       }
@@ -97,7 +113,7 @@ export default function SubscriptionScreen() {
     } else {
       Alert.alert(
         'No Purchases Found',
-        'We couldn\'t find any previous purchases associated with your account.',
+        'We couldn\'t find any previous purchases associated with your Apple ID. If you believe this is an error, please contact support.',
         [{ text: 'OK' }]
       );
     }
@@ -119,14 +135,26 @@ export default function SubscriptionScreen() {
     }
   };
 
-  // Get pricing info
-  const monthlyPackage = packages.find(p => 
-    p.packageType === 'MONTHLY' || p.identifier.includes('monthly')
-  );
-  const priceString = monthlyPackage?.product.priceString || DEMO_PRICE;
-  const periodString = DEMO_PERIOD;
+  // Loading state while initializing
+  if (isInitializing) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+            <Ionicons name="close" size={24} color={Colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.title}>StyleFlow Pro</Text>
+          <View style={{ width: 40 }} />
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.accent} />
+          <Text style={styles.loadingText}>Loading subscription options...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
-  // If already premium, show management screen
+  // Premium user management screen
   if (isPremium) {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
@@ -152,9 +180,11 @@ export default function SubscriptionScreen() {
               <Ionicons name="checkmark-circle" size={24} color={Colors.success} />
               <Text style={styles.statusText}>Premium Active</Text>
             </View>
-            <Text style={styles.statusDetail}>
-              Your subscription renews automatically
-            </Text>
+            {expirationDate && (
+              <Text style={styles.statusDetail}>
+                Renews on {expirationDate.toLocaleDateString()}
+              </Text>
+            )}
           </Card>
 
           <View style={styles.premiumFeatures}>
@@ -195,6 +225,10 @@ export default function SubscriptionScreen() {
     );
   }
 
+  // Display price from RevenueCat or fallback
+  const displayPrice = price || 'Loading...';
+  const displayPeriod = period || 'month';
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
@@ -217,14 +251,14 @@ export default function SubscriptionScreen() {
           </Text>
         </View>
         
-        {/* Price Card */}
+        {/* Price Card - Dynamic from RevenueCat */}
         <Card style={styles.priceCard}>
           <View style={styles.priceRow}>
-            <Text style={styles.priceAmount}>{priceString}</Text>
-            <Text style={styles.pricePeriod}>/{periodString}</Text>
+            <Text style={styles.priceAmount}>{displayPrice}</Text>
+            <Text style={styles.pricePeriod}>/{displayPeriod}</Text>
           </View>
           <Text style={styles.priceNote}>
-            Cancel anytime • Auto-renews monthly
+            Cancel anytime • Auto-renews {displayPeriod}ly
           </Text>
         </Card>
         
@@ -254,16 +288,18 @@ export default function SubscriptionScreen() {
         
         {/* Subscribe Button */}
         <TouchableOpacity
-          style={[styles.subscribeButton, isLoading && styles.buttonDisabled]}
+          style={[styles.subscribeButton, (isLoading || packages.length === 0) && styles.buttonDisabled]}
           onPress={handlePurchase}
-          disabled={isLoading}
+          disabled={isLoading || packages.length === 0}
         >
           {isLoading ? (
             <ActivityIndicator color={Colors.background} />
           ) : (
             <>
               <Ionicons name="diamond" size={20} color={Colors.background} />
-              <Text style={styles.subscribeButtonText}>Subscribe Now</Text>
+              <Text style={styles.subscribeButtonText}>
+                {packages.length === 0 ? 'Loading...' : 'Subscribe Now'}
+              </Text>
             </>
           )}
         </TouchableOpacity>
@@ -281,7 +317,7 @@ export default function SubscriptionScreen() {
           )}
         </TouchableOpacity>
 
-        {/* Terms & Privacy */}
+        {/* Terms & Privacy - Required for App Store */}
         <View style={styles.legalSection}>
           <Text style={styles.legalText}>
             By subscribing, you agree to our{' '}
@@ -294,9 +330,10 @@ export default function SubscriptionScreen() {
             </Text>
           </Text>
           <Text style={styles.legalSmall}>
-            Payment will be charged to your {Platform.OS === 'ios' ? 'Apple ID' : 'Google Play'} account.
+            Payment will be charged to your {Platform.OS === 'ios' ? 'Apple ID' : 'Google Play'} account at confirmation of purchase.
             Subscription automatically renews unless cancelled at least 24 hours before
-            the end of the current period.
+            the end of the current period. Your account will be charged for renewal within
+            24 hours prior to the end of the current period.
           </Text>
         </View>
       </ScrollView>
@@ -328,6 +365,16 @@ const styles = StyleSheet.create({
     fontSize: Typography.h3,
     fontWeight: Typography.semibold as any,
     color: Colors.text,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: Spacing.md,
+    fontSize: Typography.body,
+    color: Colors.textSecondary,
   },
   scrollContent: {
     padding: Spacing.screenPadding,

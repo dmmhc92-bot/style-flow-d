@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { storage } from '../utils/storage';
 import { offlineStorage } from '../utils/offlineStorage';
 import api, { setApiToken, clearApiToken } from '../utils/api';
+import { useSubscriptionStore } from './subscriptionStore';
 
 interface User {
   id?: string;
@@ -66,6 +67,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
       
       set({ token, user, isAuthenticated: true });
+      
+      // Initialize RevenueCat with user ID
+      const subscriptionStore = useSubscriptionStore.getState();
+      await subscriptionStore.identifyUser(user.id);
     } catch (error: any) {
       throw new Error(error.response?.data?.detail || 'Login failed');
     }
@@ -102,6 +107,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: async () => {
     // Clear token from memory cache first
     clearApiToken();
+    
+    // Log out from RevenueCat
+    const subscriptionStore = useSubscriptionStore.getState();
+    await subscriptionStore.logout();
     
     // Clear offline data for this user
     await offlineStorage.clearUserData();
