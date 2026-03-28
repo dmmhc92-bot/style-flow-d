@@ -19,10 +19,12 @@ class Settings:
     EMERGENT_LLM_KEY: str = os.environ.get('EMERGENT_LLM_KEY', '')
     RESEND_API_KEY: str = os.environ.get('RESEND_API_KEY', '')
     
-    # Cloudinary CDN
+    # Cloudinary CDN (Production)
     CLOUDINARY_CLOUD_NAME: str = os.environ.get('CLOUDINARY_CLOUD_NAME', '')
     CLOUDINARY_API_KEY: str = os.environ.get('CLOUDINARY_API_KEY', '')
     CLOUDINARY_API_SECRET: str = os.environ.get('CLOUDINARY_API_SECRET', '')
+    CLOUDINARY_UPLOAD_PRESET: str = os.environ.get('CLOUDINARY_UPLOAD_PRESET', 'Emergent')
+    CLOUDINARY_ASSET_FOLDER: str = os.environ.get('CLOUDINARY_ASSET_FOLDER', 'styleflow_uploads')
     
     # App Config
     APP_SCHEME: str = "styleflow"

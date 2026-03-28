@@ -2,7 +2,7 @@
 # PROFILES.PY - Stylist Hub Profile & Avatar Management
 # ═══════════════════════════════════════════════════════════════════════════════
 # LOCK_STYLIST_HUB_V1: 2025-03-28
-# UPDATED: Avatar Upload with validation (JPG/PNG, 5MB max)
+# PRODUCTION: Cloudinary CDN with unsigned upload preset
 #
 # Features:
 #   - Cloudinary avatar upload (JPG/PNG, optimized delivery)
@@ -10,6 +10,11 @@
 #   - Credential/License badge management
 #   - Enhanced discovery search (City, Name, Specialty)
 #   - Tester account pre-population for App Store review
+#
+# Cloudinary Production Config:
+#   - Cloud Name: dqq3nmkgd
+#   - Upload Preset: Emergent (Unsigned)
+#   - Asset Folder: styleflow_uploads
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
@@ -35,9 +40,13 @@ MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024  # 5MB limit for ultimate speed
 ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png']
 ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png']
 
+# Cloudinary Production Settings
+CLOUDINARY_FOLDER = getattr(settings, 'CLOUDINARY_ASSET_FOLDER', 'styleflow_uploads')
+CLOUDINARY_UPLOAD_PRESET = getattr(settings, 'CLOUDINARY_UPLOAD_PRESET', 'Emergent')
+
 # Initialize Cloudinary
 cloudinary.config(
-    cloud_name=getattr(settings, 'CLOUDINARY_CLOUD_NAME', 'demo'),
+    cloud_name=getattr(settings, 'CLOUDINARY_CLOUD_NAME', 'dqq3nmkgd'),
     api_key=getattr(settings, 'CLOUDINARY_API_KEY', ''),
     api_secret=getattr(settings, 'CLOUDINARY_API_SECRET', ''),
     secure=True
@@ -177,10 +186,10 @@ async def upload_avatar(
         cloudinary_configured = bool(getattr(settings, 'CLOUDINARY_API_KEY', ''))
         
         if cloudinary_configured:
-            # Upload to Cloudinary with optimization
+            # Upload to Cloudinary with production settings
             upload_result = cloudinary.uploader.upload(
                 f"data:image/jpeg;base64,{image_data}",
-                folder="styleflow/avatars",
+                folder=f"{CLOUDINARY_FOLDER}/avatars",
                 public_id=f"user_{str(current_user['_id'])}",
                 overwrite=True,
                 resource_type="image",
@@ -252,10 +261,10 @@ async def upload_portfolio_image(
         portfolio_id = str(uuid.uuid4())[:8]
         
         if cloudinary_configured:
-            # Upload to Cloudinary with optimization
+            # Upload to Cloudinary with production settings
             upload_result = cloudinary.uploader.upload(
                 f"data:image/jpeg;base64,{image_data}",
-                folder="styleflow/portfolio",
+                folder=f"{CLOUDINARY_FOLDER}/portfolio",
                 public_id=f"user_{user_id}_{portfolio_id}",
                 resource_type="image",
                 transformation=[
