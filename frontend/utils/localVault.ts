@@ -1,111 +1,109 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-// LOCAL SQLITE VAULT - Offline-First Data Storage
+// LOCAL VAULT - Offline-First Data Storage
 // ═══════════════════════════════════════════════════════════════════════════════
 // IMPLEMENT_SYNCED_LOOKBOOK_SYSTEM
 //
 // Features:
-//   - Local SQLite storage for offline edits
+//   - In-memory storage with AsyncStorage persistence
 //   - Profile bio/data caching
 //   - Lookbook/Portfolio local storage
 //   - Sync queue for pending operations
+//
+// Note: Uses AsyncStorage for persistence (works on both web and native)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-import * as SQLite from 'expo-sqlite';
-import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Database instance
-let db: SQLite.SQLiteDatabase | null = null;
+// Storage keys
+const KEYS = {
+  PROFILES: '@vault_profiles',
+  LOOKBOOK: '@vault_lookbook',
+  SYNC_QUEUE: '@vault_sync_queue',
+  PROFILE_EDITS: '@vault_profile_edits',
+};
 
-// Initialize database
+// In-memory cache for fast access
+const memoryCache = {
+  profiles: new Map<string, any>(),
+  lookbook: new Map<string, any>(),
+  syncQueue: [] as any[],
+  profileEdits: [] as any[],
+  initialized: false,
+};
+
+// ==================== INITIALIZE ====================
+
 export const initDatabase = async (): Promise<void> => {
-  if (Platform.OS === 'web') {
-    console.log('[SQLite] Web platform - using memory fallback');
-    return;
-  }
+  if (memoryCache.initialized) return;
   
   try {
-    db = await SQLite.openDatabaseAsync('styleflow_vault.db');
+    // Load from AsyncStorage into memory
+    const [profiles, lookbook, syncQueue, edits] = await Promise.all([
+      AsyncStorage.getItem(KEYS.PROFILES),
+      AsyncStorage.getItem(KEYS.LOOKBOOK),
+      AsyncStorage.getItem(KEYS.SYNC_QUEUE),
+      AsyncStorage.getItem(KEYS.PROFILE_EDITS),
+    ]);
     
-    // Create tables
-    await db.execAsync(`
-      -- Profile cache table
-      CREATE TABLE IF NOT EXISTS profile_cache (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        data TEXT NOT NULL,
-        updated_at INTEGER NOT NULL
-      );
-      
-      -- Lookbook/Portfolio items
-      CREATE TABLE IF NOT EXISTS lookbook_items (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL,
-        image_data TEXT NOT NULL,
-        caption TEXT,
-        is_synced INTEGER DEFAULT 0,
-        created_at INTEGER NOT NULL,
-        synced_at INTEGER
-      );
-      
-      -- Sync queue for pending operations
-      CREATE TABLE IF NOT EXISTS sync_queue (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        operation TEXT NOT NULL,
-        endpoint TEXT NOT NULL,
-        method TEXT NOT NULL,
-        payload TEXT NOT NULL,
-        created_at INTEGER NOT NULL,
-        retry_count INTEGER DEFAULT 0,
-        status TEXT DEFAULT 'pending'
-      );
-      
-      -- Profile edits pending sync
-      CREATE TABLE IF NOT EXISTS profile_edits (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT NOT NULL,
-        field_name TEXT NOT NULL,
-        field_value TEXT,
-        is_synced INTEGER DEFAULT 0,
-        created_at INTEGER NOT NULL
-      );
-    `);
+    if (profiles) {
+      const parsed = JSON.parse(profiles);
+      Object.entries(parsed).forEach(([k, v]) => memoryCache.profiles.set(k, v));
+    }
     
-    console.log('[SQLite] Database initialized successfully');
+    if (lookbook) {
+      const parsed = JSON.parse(lookbook);
+      Object.entries(parsed).forEach(([k, v]) => memoryCache.lookbook.set(k, v));
+    }
+    
+    if (syncQueue) {
+      memoryCache.syncQueue = JSON.parse(syncQueue);
+    }
+    
+    if (edits) {
+      memoryCache.profileEdits = JSON.parse(edits);
+    }
+    
+    memoryCache.initialized = true;
+    console.log('[Vault] Initialized from AsyncStorage');
   } catch (error) {
-    console.error('[SQLite] Database initialization failed:', error);
+    console.warn('[Vault] Init failed:', error);
+    memoryCache.initialized = true;
   }
+};
+
+// Persist to AsyncStorage
+const persistProfiles = async () => {
+  const obj: Record<string, any> = {};
+  memoryCache.profiles.forEach((v, k) => obj[k] = v);
+  await AsyncStorage.setItem(KEYS.PROFILES, JSON.stringify(obj));
+};
+
+const persistLookbook = async () => {
+  const obj: Record<string, any> = {};
+  memoryCache.lookbook.forEach((v, k) => obj[k] = v);
+  await AsyncStorage.setItem(KEYS.LOOKBOOK, JSON.stringify(obj));
+};
+
+const persistSyncQueue = async () => {
+  await AsyncStorage.setItem(KEYS.SYNC_QUEUE, JSON.stringify(memoryCache.syncQueue));
+};
+
+const persistProfileEdits = async () => {
+  await AsyncStorage.setItem(KEYS.PROFILE_EDITS, JSON.stringify(memoryCache.profileEdits));
 };
 
 // ==================== PROFILE CACHE ====================
 
 export const cacheProfile = async (userId: string, profileData: any): Promise<void> => {
-  if (!db || Platform.OS === 'web') return;
-  
-  try {
-    const now = Date.now();
-    await db.runAsync(
-      `INSERT OR REPLACE INTO profile_cache (id, user_id, data, updated_at) 
-       VALUES (?, ?, ?, ?)`,
-      [`profile_${userId}`, userId, JSON.stringify(profileData), now]
-    );
-  } catch (error) {
-    console.error('[SQLite] Cache profile failed:', error);
-  }
+  const key = `profile_${userId}`;
+  memoryCache.profiles.set(key, { data: profileData, updated_at: Date.now() });
+  await persistProfiles();
 };
 
 export const getCachedProfile = async (userId: string): Promise<any | null> => {
-  if (!db || Platform.OS === 'web') return null;
-  
-  try {
-    const result = await db.getFirstAsync<{ data: string }>(
-      `SELECT data FROM profile_cache WHERE user_id = ?`,
-      [userId]
-    );
-    return result ? JSON.parse(result.data) : null;
-  } catch (error) {
-    console.error('[SQLite] Get cached profile failed:', error);
-    return null;
-  }
+  const key = `profile_${userId}`;
+  const cached = memoryCache.profiles.get(key);
+  return cached?.data || null;
 };
 
 // ==================== LOOKBOOK ITEMS ====================
@@ -125,85 +123,56 @@ export const saveLookbookItem = async (
   caption?: string
 ): Promise<string> => {
   const id = `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const now = Date.now();
   
-  if (!db || Platform.OS === 'web') {
-    // Web fallback - return ID for immediate use
-    return id;
-  }
+  const item: LookbookItem = {
+    id,
+    user_id: userId,
+    image_data: imageData,
+    caption,
+    is_synced: false,
+    created_at: now,
+  };
   
-  try {
-    const now = Date.now();
-    await db.runAsync(
-      `INSERT INTO lookbook_items (id, user_id, image_data, caption, is_synced, created_at)
-       VALUES (?, ?, ?, ?, 0, ?)`,
-      [id, userId, imageData, caption || '', now]
-    );
-    
-    // Add to sync queue
-    await addToSyncQueue('lookbook_upload', '/profiles/portfolio', 'POST', {
-      localId: id,
-      image_base64: imageData,
-      caption: caption,
-    });
-    
-    return id;
-  } catch (error) {
-    console.error('[SQLite] Save lookbook item failed:', error);
-    return id;
-  }
+  memoryCache.lookbook.set(id, item);
+  await persistLookbook();
+  
+  // Add to sync queue
+  await addToSyncQueue('lookbook_upload', '/profiles/portfolio', 'POST', {
+    localId: id,
+    image_base64: imageData,
+    caption,
+  });
+  
+  return id;
 };
 
 export const getLocalLookbookItems = async (userId: string): Promise<LookbookItem[]> => {
-  if (!db || Platform.OS === 'web') return [];
+  const items: LookbookItem[] = [];
   
-  try {
-    const results = await db.getAllAsync<{
-      id: string;
-      user_id: string;
-      image_data: string;
-      caption: string;
-      is_synced: number;
-      created_at: number;
-    }>(
-      `SELECT * FROM lookbook_items WHERE user_id = ? ORDER BY created_at DESC`,
-      [userId]
-    );
-    
-    return results.map(row => ({
-      id: row.id,
-      user_id: row.user_id,
-      image_data: row.image_data,
-      caption: row.caption,
-      is_synced: row.is_synced === 1,
-      created_at: row.created_at,
-    }));
-  } catch (error) {
-    console.error('[SQLite] Get lookbook items failed:', error);
-    return [];
-  }
+  memoryCache.lookbook.forEach((item) => {
+    if (item.user_id === userId) {
+      items.push(item);
+    }
+  });
+  
+  return items.sort((a, b) => b.created_at - a.created_at);
 };
 
 export const markLookbookItemSynced = async (localId: string, serverId: string): Promise<void> => {
-  if (!db || Platform.OS === 'web') return;
-  
-  try {
-    await db.runAsync(
-      `UPDATE lookbook_items SET is_synced = 1, id = ?, synced_at = ? WHERE id = ?`,
-      [serverId, Date.now(), localId]
-    );
-  } catch (error) {
-    console.error('[SQLite] Mark synced failed:', error);
+  const item = memoryCache.lookbook.get(localId);
+  if (item) {
+    item.is_synced = true;
+    item.id = serverId;
+    memoryCache.lookbook.delete(localId);
+    memoryCache.lookbook.set(serverId, item);
+    await persistLookbook();
   }
 };
 
 export const deleteLookbookItem = async (itemId: string): Promise<void> => {
-  if (!db || Platform.OS === 'web') return;
-  
-  try {
-    await db.runAsync(`DELETE FROM lookbook_items WHERE id = ?`, [itemId]);
-  } catch (error) {
-    console.error('[SQLite] Delete lookbook item failed:', error);
-  }
+  memoryCache.lookbook.delete(itemId);
+  await persistLookbook();
 };
 
 // ==================== PROFILE EDITS ====================
@@ -213,63 +182,42 @@ export const saveProfileEdit = async (
   fieldName: string,
   fieldValue: any
 ): Promise<void> => {
-  if (!db || Platform.OS === 'web') return;
+  const now = Date.now();
+  const valueStr = typeof fieldValue === 'object' ? JSON.stringify(fieldValue) : String(fieldValue);
   
-  try {
-    const now = Date.now();
-    const valueStr = typeof fieldValue === 'object' ? JSON.stringify(fieldValue) : String(fieldValue);
-    
-    await db.runAsync(
-      `INSERT INTO profile_edits (user_id, field_name, field_value, is_synced, created_at)
-       VALUES (?, ?, ?, 0, ?)`,
-      [userId, fieldName, valueStr, now]
-    );
-  } catch (error) {
-    console.error('[SQLite] Save profile edit failed:', error);
-  }
+  memoryCache.profileEdits.push({
+    user_id: userId,
+    field_name: fieldName,
+    field_value: valueStr,
+    is_synced: false,
+    created_at: now,
+  });
+  
+  await persistProfileEdits();
 };
 
 export const getPendingProfileEdits = async (userId: string): Promise<Record<string, any>> => {
-  if (!db || Platform.OS === 'web') return {};
+  const edits: Record<string, any> = {};
   
-  try {
-    const results = await db.getAllAsync<{
-      field_name: string;
-      field_value: string;
-    }>(
-      `SELECT field_name, field_value FROM profile_edits 
-       WHERE user_id = ? AND is_synced = 0 
-       ORDER BY created_at DESC`,
-      [userId]
-    );
-    
-    const edits: Record<string, any> = {};
-    results.forEach(row => {
+  memoryCache.profileEdits
+    .filter(e => e.user_id === userId && !e.is_synced)
+    .forEach(e => {
       try {
-        edits[row.field_name] = JSON.parse(row.field_value);
+        edits[e.field_name] = JSON.parse(e.field_value);
       } catch {
-        edits[row.field_name] = row.field_value;
+        edits[e.field_name] = e.field_value;
       }
     });
-    
-    return edits;
-  } catch (error) {
-    console.error('[SQLite] Get pending edits failed:', error);
-    return {};
-  }
+  
+  return edits;
 };
 
 export const markProfileEditsSynced = async (userId: string): Promise<void> => {
-  if (!db || Platform.OS === 'web') return;
+  memoryCache.profileEdits
+    .filter(e => e.user_id === userId)
+    .forEach(e => e.is_synced = true);
   
-  try {
-    await db.runAsync(
-      `UPDATE profile_edits SET is_synced = 1 WHERE user_id = ? AND is_synced = 0`,
-      [userId]
-    );
-  } catch (error) {
-    console.error('[SQLite] Mark edits synced failed:', error);
-  }
+  await persistProfileEdits();
 };
 
 // ==================== SYNC QUEUE ====================
@@ -285,104 +233,71 @@ export interface SyncQueueItem {
   status: string;
 }
 
+let syncQueueId = Date.now();
+
 export const addToSyncQueue = async (
   operation: string,
   endpoint: string,
   method: string,
   payload: any
 ): Promise<void> => {
-  if (!db || Platform.OS === 'web') return;
+  const item: SyncQueueItem = {
+    id: ++syncQueueId,
+    operation,
+    endpoint,
+    method,
+    payload,
+    created_at: Date.now(),
+    retry_count: 0,
+    status: 'pending',
+  };
   
-  try {
-    const now = Date.now();
-    await db.runAsync(
-      `INSERT INTO sync_queue (operation, endpoint, method, payload, created_at, status)
-       VALUES (?, ?, ?, ?, ?, 'pending')`,
-      [operation, endpoint, method, JSON.stringify(payload), now]
-    );
-  } catch (error) {
-    console.error('[SQLite] Add to sync queue failed:', error);
-  }
+  memoryCache.syncQueue.push(item);
+  await persistSyncQueue();
 };
 
 export const getPendingSyncItems = async (): Promise<SyncQueueItem[]> => {
-  if (!db || Platform.OS === 'web') return [];
-  
-  try {
-    const results = await db.getAllAsync<{
-      id: number;
-      operation: string;
-      endpoint: string;
-      method: string;
-      payload: string;
-      created_at: number;
-      retry_count: number;
-      status: string;
-    }>(
-      `SELECT * FROM sync_queue WHERE status = 'pending' ORDER BY created_at ASC`
-    );
-    
-    return results.map(row => ({
-      ...row,
-      payload: JSON.parse(row.payload),
-    }));
-  } catch (error) {
-    console.error('[SQLite] Get pending sync items failed:', error);
-    return [];
-  }
+  return memoryCache.syncQueue.filter(i => i.status === 'pending');
 };
 
 export const markSyncItemComplete = async (id: number): Promise<void> => {
-  if (!db || Platform.OS === 'web') return;
-  
-  try {
-    await db.runAsync(`DELETE FROM sync_queue WHERE id = ?`, [id]);
-  } catch (error) {
-    console.error('[SQLite] Mark sync complete failed:', error);
+  const idx = memoryCache.syncQueue.findIndex(i => i.id === id);
+  if (idx >= 0) {
+    memoryCache.syncQueue.splice(idx, 1);
+    await persistSyncQueue();
   }
 };
 
 export const incrementSyncRetry = async (id: number): Promise<void> => {
-  if (!db || Platform.OS === 'web') return;
-  
-  try {
-    await db.runAsync(
-      `UPDATE sync_queue SET retry_count = retry_count + 1 WHERE id = ?`,
-      [id]
-    );
-  } catch (error) {
-    console.error('[SQLite] Increment retry failed:', error);
+  const item = memoryCache.syncQueue.find(i => i.id === id);
+  if (item) {
+    item.retry_count++;
+    await persistSyncQueue();
   }
 };
 
 export const markSyncItemFailed = async (id: number): Promise<void> => {
-  if (!db || Platform.OS === 'web') return;
-  
-  try {
-    await db.runAsync(
-      `UPDATE sync_queue SET status = 'failed' WHERE id = ?`,
-      [id]
-    );
-  } catch (error) {
-    console.error('[SQLite] Mark sync failed:', error);
+  const item = memoryCache.syncQueue.find(i => i.id === id);
+  if (item) {
+    item.status = 'failed';
+    await persistSyncQueue();
   }
 };
 
 // ==================== UTILITY ====================
 
 export const clearAllLocalData = async (): Promise<void> => {
-  if (!db || Platform.OS === 'web') return;
+  memoryCache.profiles.clear();
+  memoryCache.lookbook.clear();
+  memoryCache.syncQueue.length = 0;
+  memoryCache.profileEdits.length = 0;
   
-  try {
-    await db.execAsync(`
-      DELETE FROM profile_cache;
-      DELETE FROM lookbook_items;
-      DELETE FROM sync_queue;
-      DELETE FROM profile_edits;
-    `);
-  } catch (error) {
-    console.error('[SQLite] Clear all data failed:', error);
-  }
+  await Promise.all([
+    AsyncStorage.removeItem(KEYS.PROFILES),
+    AsyncStorage.removeItem(KEYS.LOOKBOOK),
+    AsyncStorage.removeItem(KEYS.SYNC_QUEUE),
+    AsyncStorage.removeItem(KEYS.PROFILE_EDITS),
+  ]);
 };
 
 export const getLocalDataStats = async (): Promise<{
@@ -391,28 +306,12 @@ export const getLocalDataStats = async (): Promise<{
   pendingSync: number;
   pendingEdits: number;
 }> => {
-  if (!db || Platform.OS === 'web') {
-    return { cachedProfiles: 0, lookbookItems: 0, pendingSync: 0, pendingEdits: 0 };
-  }
-  
-  try {
-    const [profiles, lookbook, sync, edits] = await Promise.all([
-      db.getFirstAsync<{ count: number }>(`SELECT COUNT(*) as count FROM profile_cache`),
-      db.getFirstAsync<{ count: number }>(`SELECT COUNT(*) as count FROM lookbook_items WHERE is_synced = 0`),
-      db.getFirstAsync<{ count: number }>(`SELECT COUNT(*) as count FROM sync_queue WHERE status = 'pending'`),
-      db.getFirstAsync<{ count: number }>(`SELECT COUNT(*) as count FROM profile_edits WHERE is_synced = 0`),
-    ]);
-    
-    return {
-      cachedProfiles: profiles?.count || 0,
-      lookbookItems: lookbook?.count || 0,
-      pendingSync: sync?.count || 0,
-      pendingEdits: edits?.count || 0,
-    };
-  } catch (error) {
-    console.error('[SQLite] Get stats failed:', error);
-    return { cachedProfiles: 0, lookbookItems: 0, pendingSync: 0, pendingEdits: 0 };
-  }
+  return {
+    cachedProfiles: memoryCache.profiles.size,
+    lookbookItems: Array.from(memoryCache.lookbook.values()).filter(i => !i.is_synced).length,
+    pendingSync: memoryCache.syncQueue.filter(i => i.status === 'pending').length,
+    pendingEdits: memoryCache.profileEdits.filter(e => !e.is_synced).length,
+  };
 };
 
 export default {

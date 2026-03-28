@@ -18,10 +18,13 @@ import * as ImagePicker from 'expo-image-picker';
 import Input from '../../components/Input';
 import Button from '../../components/Button';
 import { SpecialtiesInput } from '../../components/SpecialtiesInput';
+import { SyncStatusBar } from '../../components/SyncStatusBar';
 import Colors from '../../constants/Colors';
 import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
 import { useAuthStore } from '../../store/authStore';
+import { useSyncStatus } from '../../utils/syncService';
+import { saveProfileEdit, cacheProfile, getCachedProfile } from '../../utils/localVault';
 import api from '../../utils/api';
 
 // Maximum file size: 5MB
@@ -30,6 +33,7 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
 export default function ProfileEditScreen() {
   const router = useRouter();
   const { user, updateProfile, loadUser } = useAuthStore();
+  const { isOnline } = useSyncStatus();
   
   const [fullName, setFullName] = useState(user?.full_name || '');
   const [businessName, setBusinessName] = useState(user?.business_name || '');
@@ -48,6 +52,7 @@ export default function ProfileEditScreen() {
   const [website, setWebsite] = useState(user?.website_url || '');
   const [profilePhoto, setProfilePhoto] = useState(user?.profile_photo || '');
   const [loading, setLoading] = useState(false);
+  const [savedOffline, setSavedOffline] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [uploadProgress, setUploadProgress] = useState('');
   
@@ -218,28 +223,60 @@ export default function ProfileEditScreen() {
     }
     
     setLoading(true);
-    try {
-      await updateProfile({
-        full_name: fullName.trim(),
-        business_name: businessName.trim() || undefined,
-        bio: bio.trim() || undefined,
-        city: city.trim() || undefined,
-        salon_name: salonName.trim() || undefined,
-        specialties: specialties.length > 0 ? specialties : undefined,
-        instagram_handle: instagram.trim() || undefined,
-        tiktok_handle: tiktok.trim() || undefined,
-        website_url: website.trim() || undefined,
-        // Profile photo is already saved via separate upload
-      });
+    setSavedOffline(false);
+    
+    const profileData = {
+      full_name: fullName.trim(),
+      business_name: businessName.trim() || undefined,
+      bio: bio.trim() || undefined,
+      city: city.trim() || undefined,
+      salon_name: salonName.trim() || undefined,
+      specialties: specialties.length > 0 ? specialties : undefined,
+      instagram_handle: instagram.trim() || undefined,
+      tiktok_handle: tiktok.trim() || undefined,
+      website_url: website.trim() || undefined,
+    };
+    
+    // OFFLINE-FIRST: Save locally first
+    if (user?.id) {
+      await cacheProfile(user.id, { ...user, ...profileData });
       
-      Alert.alert('Success', 'Profile updated successfully', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
-    } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to update profile');
-    } finally {
-      setLoading(false);
+      // Save individual edits for sync queue
+      Object.entries(profileData).forEach(([key, value]) => {
+        if (value !== undefined) {
+          saveProfileEdit(user.id, key, value);
+        }
+      });
     }
+    
+    // Try to sync if online
+    if (isOnline) {
+      try {
+        await updateProfile(profileData);
+        
+        Alert.alert('Success', 'Profile updated successfully', [
+          { text: 'OK', onPress: () => router.back() },
+        ]);
+      } catch (error: any) {
+        // Failed to sync but saved locally
+        setSavedOffline(true);
+        Alert.alert(
+          'Saved Locally', 
+          'Your changes are saved and will sync when you\'re back online.',
+          [{ text: 'OK', onPress: () => router.back() }]
+        );
+      }
+    } else {
+      // Offline - show saved locally message
+      setSavedOffline(true);
+      Alert.alert(
+        'Saved Offline', 
+        'Your changes are saved locally and will sync automatically when connected.',
+        [{ text: 'OK', onPress: () => router.back() }]
+      );
+    }
+    
+    setLoading(false);
   };
   
   const isValidUrl = (urlString: string): boolean => {
@@ -250,6 +287,9 @@ export default function ProfileEditScreen() {
   
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Offline Status Bar */}
+      <SyncStatusBar />
+      
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
