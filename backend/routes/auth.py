@@ -202,7 +202,8 @@ async def refresh_token(refresh_token: str = Header(..., alias="X-Refresh-Token"
     # Check if this refresh token's JTI matches the stored one (revocation check)
     stored_jti = user.get("refresh_token_jti")
     token_jti = refresh_payload.get("jti")
-    if stored_jti and token_jti != stored_jti:
+    # If no stored JTI (user logged out) OR token doesn't match, reject
+    if not stored_jti or token_jti != stored_jti:
         raise HTTPException(status_code=401, detail="Refresh token has been revoked")
     
     user_id = str(user["_id"])
