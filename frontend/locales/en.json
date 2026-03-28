@@ -1,0 +1,7 @@
+{
+  "CFBundleDisplayName": "StyleFlow",
+  "CFBundleName": "StyleFlow",
+  "NSPhotoLibraryUsageDescription": "Upload stunning client photos to your portfolio",
+  "NSCameraUsageDescription": "Capture before & after transformations",
+  "NSPhotoLibraryAddUsageDescription": "Save your work to device gallery"
+}

@@ -6,24 +6,49 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "styleflow",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "owner": "styleflow",
+    "description": "Premium hairstylist business app for client management, formula vault, and portfolio showcase",
+    "primaryColor": "#8BA889",
     "extra": {
       "eas": {
         "projectId": "b1fe50c3-30ac-4f2f-b705-38933734178b"
       }
     },
+    "updates": {
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/b1fe50c3-30ac-4f2f-b705-38933734178b"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.styleflow.app",
+      "buildNumber": "1",
       "associatedDomains": [
-        "applinks:homestyleflowapp.com"
+        "applinks:homestyleflowapp.com",
+        "webcredentials:homestyleflowapp.com"
       ],
+      "config": {
+        "usesNonExemptEncryption": false
+      },
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "Upload client photos to your gallery",
-        "NSCameraUsageDescription": "Take before & after photos of your clients",
-        "NSPhotoLibraryAddUsageDescription": "Save photos to your device"
+        "NSPhotoLibraryUsageDescription": "Upload stunning client photos to your portfolio",
+        "NSCameraUsageDescription": "Capture before & after transformations",
+        "NSPhotoLibraryAddUsageDescription": "Save your work to device gallery",
+        "NSFaceIDUsageDescription": "Secure login with Face ID",
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": ["remote-notification"]
+      },
+      "privacyManifests": {
+        "NSPrivacyAccessedAPITypes": [
+          {
+            "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+            "NSPrivacyAccessedAPITypeReasons": ["CA92.1"]
+          }
+        ]
       }
     },
     "android": {
@@ -33,6 +58,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.styleflow.app",
+      "versionCode": 1,
       "intentFilters": [
         {
           "action": "VIEW",
@@ -42,6 +68,11 @@
               "scheme": "https",
               "host": "homestyleflowapp.com",
               "pathPrefix": "/reset-password"
+            },
+            {
+              "scheme": "https",
+              "host": "homestyleflowapp.com",
+              "pathPrefix": "/hub"
             }
           ],
           "category": ["BROWSABLE", "DEFAULT"]
@@ -51,7 +82,9 @@
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
-        "READ_MEDIA_IMAGES"
+        "READ_MEDIA_IMAGES",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
       ]
     },
     "web": {
@@ -73,19 +106,22 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Upload client photos to your gallery",
-          "cameraPermission": "Take before & after photos of your clients"
+          "photosPermission": "Upload stunning client photos to your portfolio",
+          "cameraPermission": "Capture before & after transformations"
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Take before & after photos of your clients"
+          "cameraPermission": "Capture before & after transformations"
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "locales": {
+      "en": "./locales/en.json"
     }
   }
 }

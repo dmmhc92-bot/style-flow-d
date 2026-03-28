@@ -7,20 +7,52 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "env": {
+        "APP_ENV": "development"
+      },
       "ios": {
         "simulator": true
+      },
+      "android": {
+        "buildType": "apk"
       }
     },
     "preview": {
       "distribution": "internal",
+      "env": {
+        "APP_ENV": "preview"
+      },
       "ios": {
         "simulator": false
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "testflight": {
+      "distribution": "store",
+      "autoIncrement": "buildNumber",
+      "env": {
+        "APP_ENV": "production"
+      },
+      "ios": {
+        "simulator": false,
+        "credentialsSource": "remote"
       }
     },
     "production": {
+      "distribution": "store",
       "autoIncrement": true,
+      "env": {
+        "APP_ENV": "production"
+      },
       "ios": {
-        "simulator": false
+        "simulator": false,
+        "credentialsSource": "remote"
+      },
+      "android": {
+        "buildType": "app-bundle",
+        "credentialsSource": "remote"
       }
     }
   },
@@ -30,6 +62,10 @@
         "appleId": "",
         "ascAppId": "",
         "appleTeamId": "NTZB3ZFKXK"
+      },
+      "android": {
+        "serviceAccountKeyPath": "",
+        "track": "internal"
       }
     }
   }
