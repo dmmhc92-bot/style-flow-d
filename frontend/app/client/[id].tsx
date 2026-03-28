@@ -127,7 +127,7 @@ export default function ClientDetailScreen() {
         <Text style={styles.title}>Client Details</Text>
         <TouchableOpacity
           style={styles.editButton}
-          onPress={() => Alert.alert('Coming Soon', 'Edit client feature')}
+          onPress={() => router.push(`/client/${id}/edit`)}
         >
           <Ionicons name="create-outline" size={24} color={Colors.accent} />
         </TouchableOpacity>

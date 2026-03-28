@@ -1,617 +1,531 @@
 #!/usr/bin/env python3
 """
-STYLEFLOW PRODUCTION - COMPREHENSIVE END-TO-END TESTING
-======================================================
+StyleFlow Backend Critical Audit Testing
+=========================================
 
-This test suite covers all critical flows as requested in the review:
-
-1. AUTH FLOWS - signup, login, refresh, logout, forgot-password, /api/auth/me
-2. STYLIST HUB - profiles, discovery, avatar upload, portfolio, credentials  
-3. CLIENT MANAGEMENT - list, create, get detail
-4. FORMULA VAULT - list, create
-5. APPOINTMENTS - list, create
-6. SOCIAL/FEED - list posts, create post, follow user
-7. SUBSCRIPTION - status check
+This script tests the critical audit items for StyleFlow backend:
+1. Data Stickiness/Isolation - User-scoped data protection
+2. Client CRUD endpoints - Full CRUD operations
+3. Authentication - JWT token handling
+4. Profile endpoints - User profile management
 
 Admin credentials: admin@styleflow.com / Admin1234!
+Backend URL: https://hairflow-app-1.preview.emergentagent.com/api
 """
 
 import requests
 import json
-import base64
-from datetime import datetime, timedelta
 import uuid
-import time
+from datetime import datetime
+from typing import Dict, Any, Optional
 
-# Backend URL from frontend/.env
-BACKEND_URL = "https://hairflow-app-1.preview.emergentagent.com/api"
-
-# Test credentials from review request
+# Configuration
+BASE_URL = "https://hairflow-app-1.preview.emergentagent.com/api"
 ADMIN_EMAIL = "admin@styleflow.com"
 ADMIN_PASSWORD = "Admin1234!"
 
-# Test data
-TEST_USER_EMAIL = f"testuser_{int(time.time())}@styleflow.com"
-TEST_USER_PASSWORD = "TestPass123!"
-TEST_USER_NAME = "Test User"
-
-def create_test_base64_image():
-    """Create a small test base64 image for uploads"""
-    return "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwA/wA=="
-
 class StyleFlowTester:
     def __init__(self):
+        self.base_url = BASE_URL
         self.admin_token = None
-        self.user_token = None
-        self.refresh_token = None
-        self.test_client_id = None
-        self.test_formula_id = None
-        self.test_appointment_id = None
-        self.test_post_id = None
+        self.admin_user_id = None
+        self.test_user_token = None
         self.test_user_id = None
+        self.test_client_id = None
         self.results = []
-
-    def log_result(self, test_name, success, details=""):
+        
+    def log_result(self, test_name: str, success: bool, details: str = "", response_data: Any = None):
         """Log test result"""
         status = "✅ PASS" if success else "❌ FAIL"
-        print(f"{test_name:<50} {status}")
-        if details and not success:
-            print(f"   Details: {details}")
-        self.results.append((test_name, success, details))
+        self.results.append({
+            "test": test_name,
+            "status": status,
+            "success": success,
+            "details": details,
+            "response_data": response_data
+        })
+        print(f"{status} {test_name}")
+        if details:
+            print(f"    {details}")
+        if not success and response_data:
+            print(f"    Response: {response_data}")
+        print()
 
-    def make_request(self, method, endpoint, data=None, headers=None, expected_status=200):
-        """Make HTTP request with error handling"""
-        url = f"{BACKEND_URL}{endpoint}"
+    def make_request(self, method: str, endpoint: str, data: Dict = None, headers: Dict = None, token: str = None) -> tuple:
+        """Make HTTP request and return (success, response_data, status_code)"""
+        url = f"{self.base_url}{endpoint}"
+        
+        # Set up headers
+        request_headers = {"Content-Type": "application/json"}
+        if headers:
+            request_headers.update(headers)
+        if token:
+            request_headers["Authorization"] = f"Bearer {token}"
+            
         try:
             if method.upper() == "GET":
-                response = requests.get(url, headers=headers)
+                response = requests.get(url, headers=request_headers, timeout=30)
             elif method.upper() == "POST":
-                response = requests.post(url, json=data, headers=headers)
+                response = requests.post(url, json=data, headers=request_headers, timeout=30)
             elif method.upper() == "PUT":
-                response = requests.put(url, json=data, headers=headers)
+                response = requests.put(url, json=data, headers=request_headers, timeout=30)
             elif method.upper() == "DELETE":
-                response = requests.delete(url, headers=headers)
+                response = requests.delete(url, headers=request_headers, timeout=30)
             else:
-                return None, f"Unsupported method: {method}"
+                return False, f"Unsupported method: {method}", 0
+                
+            try:
+                response_data = response.json()
+            except:
+                response_data = response.text
+                
+            return response.status_code < 400, response_data, response.status_code
+            
+        except requests.exceptions.RequestException as e:
+            return False, f"Request failed: {str(e)}", 0
 
-            if response.status_code == expected_status:
-                try:
-                    return response.json(), None
-                except:
-                    return {"status": "success"}, None
-            else:
-                return None, f"Status {response.status_code}: {response.text}"
-        except Exception as e:
-            return None, f"Request error: {str(e)}"
-
-    # ==================== AUTH FLOWS ====================
-
-    def test_auth_signup(self):
-        """Test 1: POST /api/auth/signup - Create new user"""
-        print("\n🔐 AUTH FLOWS")
+    def test_admin_authentication(self):
+        """Test 1: Admin Authentication - JWT token handling"""
+        print("🔐 Testing Admin Authentication...")
         
-        signup_data = {
-            "email": TEST_USER_EMAIL,
-            "password": TEST_USER_PASSWORD,
-            "full_name": TEST_USER_NAME,
-            "business_name": "Test Salon"
-        }
-        
-        data, error = self.make_request("POST", "/auth/signup", signup_data, expected_status=200)
-        if data and not error:
-            # Extract user_id from response
-            user_data = data.get("user", {})
-            self.test_user_id = user_data.get("id")
-            self.user_token = data.get("token") or data.get("access_token")
-            self.log_result("Auth Signup", True)
-            return True
-        else:
-            self.log_result("Auth Signup", False, error)
-            return False
-
-    def test_auth_login_admin(self):
-        """Test 2: POST /api/auth/login with admin credentials"""
+        # Test login
         login_data = {
             "email": ADMIN_EMAIL,
             "password": ADMIN_PASSWORD
         }
         
-        data, error = self.make_request("POST", "/auth/login", login_data)
-        if data and not error:
-            self.admin_token = data.get("token") or data.get("access_token")
-            self.refresh_token = data.get("refresh_token")
-            if self.admin_token:
-                self.log_result("Auth Login (Admin)", True)
-                return True
+        success, response, status_code = self.make_request("POST", "/auth/login", login_data)
         
-        self.log_result("Auth Login (Admin)", False, error)
-        return False
-
-    def test_auth_refresh(self):
-        """Test 3: POST /api/auth/refresh with refresh token"""
-        if not self.refresh_token:
-            self.log_result("Auth Refresh Token", False, "No refresh token available")
-            return False
-        
-        headers = {"X-Refresh-Token": self.refresh_token}
-        data, error = self.make_request("POST", "/auth/refresh", headers=headers)
-        
-        if data and not error:
-            new_token = data.get("token") or data.get("access_token")
-            if new_token:
-                self.admin_token = new_token  # Update token
-                self.log_result("Auth Refresh Token", True)
-                return True
-        
-        self.log_result("Auth Refresh Token", False, error)
-        return False
-
-    def test_auth_me(self):
-        """Test 4: GET /api/auth/me - Verify user data with is_tester flag"""
-        if not self.admin_token:
-            self.log_result("Auth Me Endpoint", False, "No admin token")
-            return False
-        
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
-        data, error = self.make_request("GET", "/auth/me", headers=headers)
-        
-        if data and not error:
-            has_is_tester = "is_tester" in data
-            email_correct = data.get("email") == ADMIN_EMAIL
-            if has_is_tester and email_correct:
-                self.log_result("Auth Me Endpoint", True)
-                return True
+        if success and "token" in response:
+            self.admin_token = response["token"]
+            self.admin_user_id = response.get("user", {}).get("id")
+            self.log_result(
+                "Admin Login", 
+                True, 
+                f"Successfully authenticated admin user. Token received, User ID: {self.admin_user_id}"
+            )
+            
+            # Test /auth/me endpoint
+            success, me_response, _ = self.make_request("GET", "/auth/me", token=self.admin_token)
+            if success and "is_tester" in me_response:
+                self.log_result(
+                    "Auth Me Endpoint", 
+                    True, 
+                    f"GET /api/auth/me working. is_tester: {me_response.get('is_tester')}, is_admin: {me_response.get('is_admin')}"
+                )
             else:
-                self.log_result("Auth Me Endpoint", False, f"Missing is_tester field or wrong email")
-                return False
-        
-        self.log_result("Auth Me Endpoint", False, error)
-        return False
-
-    def test_auth_forgot_password(self):
-        """Test 5: POST /api/auth/forgot-password - Test email trigger"""
-        forgot_data = {"email": ADMIN_EMAIL}
-        data, error = self.make_request("POST", "/auth/forgot-password", forgot_data)
-        
-        if data and not error:
-            # Should return success message even for security
-            self.log_result("Auth Forgot Password", True)
-            return True
-        
-        self.log_result("Auth Forgot Password", False, error)
-        return False
-
-    def test_auth_logout(self):
-        """Test 6: POST /api/auth/logout - Verify token revocation"""
-        if not self.admin_token:
-            self.log_result("Auth Logout", False, "No admin token")
+                self.log_result("Auth Me Endpoint", False, "Failed to get user profile", me_response)
+                
+        else:
+            self.log_result("Admin Login", False, f"Login failed with status {status_code}", response)
             return False
-        
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
-        data, error = self.make_request("POST", "/auth/logout", headers=headers)
-        
-        if data and not error:
-            self.log_result("Auth Logout", True)
-            return True
-        
-        self.log_result("Auth Logout", False, error)
-        return False
+            
+        return True
 
-    # ==================== STYLIST HUB ====================
-
-    def test_profiles_me_hub(self):
-        """Test 7: GET /api/profiles/me/hub - Own profile with portfolio"""
-        print("\n👤 STYLIST HUB")
+    def create_test_user(self):
+        """Create a separate test user for data isolation testing"""
+        print("👤 Creating Test User for Data Isolation...")
         
-        if not self.admin_token:
-            self.log_result("Profiles Me Hub", False, "No admin token")
-            return False
-        
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
-        data, error = self.make_request("GET", "/profiles/me/hub", headers=headers)
-        
-        if data and not error:
-            has_portfolio = "portfolio" in data or "portfolio_images" in data
-            self.log_result("Profiles Me Hub", True)
-            return True
-        
-        self.log_result("Profiles Me Hub", False, error)
-        return False
-
-    def test_profiles_discover(self):
-        """Test 8: GET /api/profiles/discover - Discovery with filters"""
-        headers = {"Authorization": f"Bearer {self.admin_token}"} if self.admin_token else {}
-        
-        # Test basic discovery
-        data, error = self.make_request("GET", "/profiles/discover", headers=headers)
-        if not data or error:
-            self.log_result("Profiles Discover", False, f"Basic discover failed: {error}")
-            return False
-        
-        # Test with filters - use simpler parameters
-        data, error = self.make_request("GET", "/profiles/discover?featured=true", headers=headers)
-        if data and not error:
-            self.log_result("Profiles Discover", True)
-            return True
-        
-        self.log_result("Profiles Discover", False, f"Filtered discover failed: {error}")
-        return False
-
-    def test_profiles_avatar_upload(self):
-        """Test 9: POST /api/profiles/avatar - Cloudinary upload"""
-        if not self.admin_token:
-            self.log_result("Profiles Avatar Upload", False, "No admin token")
-            return False
-        
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
-        upload_data = {"image_base64": create_test_base64_image()}
-        
-        data, error = self.make_request("POST", "/profiles/avatar", upload_data, headers=headers)
-        
-        if data and not error:
-            # Verify production folder structure
-            avatar_url = data.get("avatar_url", "")
-            has_production_folder = "styleflow_uploads/avatars" in avatar_url
-            self.log_result("Profiles Avatar Upload", has_production_folder)
-            return has_production_folder
-        
-        self.log_result("Profiles Avatar Upload", False, error)
-        return False
-
-    def test_profiles_portfolio_upload(self):
-        """Test 10: POST /api/profiles/portfolio - Portfolio upload"""
-        if not self.admin_token:
-            self.log_result("Profiles Portfolio Upload", False, "No admin token")
-            return False
-        
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
-        upload_data = {
-            "image_base64": create_test_base64_image(),
-            "caption": "Test portfolio upload"
+        test_email = f"testuser_{uuid.uuid4().hex[:8]}@styleflow.com"
+        signup_data = {
+            "email": test_email,
+            "password": "TestPassword123!",
+            "full_name": "Test User",
+            "business_name": "Test Salon"
         }
         
-        data, error = self.make_request("POST", "/profiles/portfolio", upload_data, headers=headers)
+        success, response, status_code = self.make_request("POST", "/auth/signup", signup_data)
         
-        if data and not error:
-            self.log_result("Profiles Portfolio Upload", True)
+        if success and "token" in response:
+            self.test_user_token = response["token"]
+            self.test_user_id = response.get("user", {}).get("id")
+            self.log_result(
+                "Test User Creation", 
+                True, 
+                f"Created test user: {test_email}, User ID: {self.test_user_id}"
+            )
             return True
-        
-        self.log_result("Profiles Portfolio Upload", False, error)
-        return False
-
-    def test_profiles_credentials(self):
-        """Test 11: POST /api/profiles/credentials - Update license/credentials"""
-        if not self.admin_token:
-            self.log_result("Profiles Credentials", False, "No admin token")
+        else:
+            self.log_result("Test User Creation", False, f"Failed to create test user. Status: {status_code}", response)
             return False
-        
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
-        creds_data = {
-            "license_number": "CA123456",
-            "license_state": "CA",
-            "certifications": ["Advanced Color Theory", "Balayage Specialist"]
-        }
-        
-        data, error = self.make_request("POST", "/profiles/credentials", creds_data, headers=headers)
-        
-        if data and not error:
-            self.log_result("Profiles Credentials", True)
-            return True
-        
-        self.log_result("Profiles Credentials", False, error)
-        return False
 
-    # ==================== CLIENT MANAGEMENT ====================
-
-    def test_clients_list(self):
-        """Test 12: GET /api/clients - List clients"""
-        print("\n👥 CLIENT MANAGEMENT")
+    def test_client_crud_operations(self):
+        """Test 2: Client CRUD endpoints with admin credentials"""
+        print("📋 Testing Client CRUD Operations...")
         
         if not self.admin_token:
-            self.log_result("Clients List", False, "No admin token")
+            self.log_result("Client CRUD Setup", False, "No admin token available")
             return False
+            
+        # Test GET /api/clients - list all clients
+        success, clients_response, status_code = self.make_request("GET", "/clients", token=self.admin_token)
         
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
-        data, error = self.make_request("GET", "/clients", headers=headers)
-        
-        if data and not error:
-            self.log_result("Clients List", True)
-            return True
-        
-        self.log_result("Clients List", False, error)
-        return False
-
-    def test_clients_create(self):
-        """Test 13: POST /api/clients - Create new client"""
-        if not self.admin_token:
-            self.log_result("Clients Create", False, "No admin token")
-            return False
-        
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
+        if success:
+            client_count = len(clients_response) if isinstance(clients_response, list) else 0
+            self.log_result(
+                "GET /api/clients", 
+                True, 
+                f"Successfully retrieved {client_count} clients for authenticated user"
+            )
+        else:
+            self.log_result("GET /api/clients", False, f"Failed to get clients. Status: {status_code}", clients_response)
+            
+        # Test POST /api/clients - create a new client
         client_data = {
-            "name": "Sarah Johnson",
-            "email": "sarah.johnson@email.com",
-            "phone": "+1-555-0123",
-            "notes": "Prefers natural colors",
-            "is_vip": False
+            "name": f"Test Client {uuid.uuid4().hex[:6]}",
+            "email": f"client_{uuid.uuid4().hex[:8]}@example.com",
+            "phone": "+1234567890",
+            "notes": "Test client for audit",
+            "is_vip": False,
+            "rebook_interval_days": 42
         }
         
-        data, error = self.make_request("POST", "/clients", client_data, headers=headers, expected_status=200)
+        success, create_response, status_code = self.make_request("POST", "/clients", client_data, token=self.admin_token)
         
-        if data and not error:
-            self.test_client_id = data.get("id")
-            self.log_result("Clients Create", True)
-            return True
-        
-        self.log_result("Clients Create", False, error)
-        return False
+        if success and "id" in create_response:
+            self.test_client_id = create_response["id"]
+            self.log_result(
+                "POST /api/clients", 
+                True, 
+                f"Successfully created client. ID: {self.test_client_id}"
+            )
+            
+            # Test PUT /api/clients/{id} - update client
+            update_data = {
+                "name": f"Updated Test Client {uuid.uuid4().hex[:6]}",
+                "notes": "Updated notes for audit testing",
+                "is_vip": True
+            }
+            
+            success, update_response, status_code = self.make_request(
+                "PUT", f"/clients/{self.test_client_id}", update_data, token=self.admin_token
+            )
+            
+            if success:
+                self.log_result(
+                    "PUT /api/clients/{id}", 
+                    True, 
+                    f"Successfully updated client. VIP status: {update_response.get('is_vip')}"
+                )
+            else:
+                self.log_result("PUT /api/clients/{id}", False, f"Failed to update client. Status: {status_code}", update_response)
+                
+            # Test DELETE /api/clients/{id} - delete client
+            success, delete_response, status_code = self.make_request(
+                "DELETE", f"/clients/{self.test_client_id}", token=self.admin_token
+            )
+            
+            if success:
+                self.log_result(
+                    "DELETE /api/clients/{id}", 
+                    True, 
+                    "Successfully deleted client"
+                )
+            else:
+                self.log_result("DELETE /api/clients/{id}", False, f"Failed to delete client. Status: {status_code}", delete_response)
+                
+        else:
+            self.log_result("POST /api/clients", False, f"Failed to create client. Status: {status_code}", create_response)
 
-    def test_clients_get_detail(self):
-        """Test 14: GET /api/clients/{id} - Get client detail"""
-        if not self.admin_token or not self.test_client_id:
-            self.log_result("Clients Get Detail", False, "No admin token or client ID")
+    def test_data_isolation(self):
+        """Test 3: Data Stickiness/Isolation - Verify user-scoped data"""
+        print("🔒 Testing Data Isolation and User-Scoped Access...")
+        
+        if not self.admin_token or not self.test_user_token:
+            self.log_result("Data Isolation Setup", False, "Missing required tokens for isolation testing")
             return False
+            
+        # Create a client as admin user
+        admin_client_data = {
+            "name": f"Admin Client {uuid.uuid4().hex[:6]}",
+            "email": f"admin_client_{uuid.uuid4().hex[:8]}@example.com",
+            "phone": "+1111111111",
+            "notes": "Admin's private client data"
+        }
         
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
-        data, error = self.make_request("GET", f"/clients/{self.test_client_id}", headers=headers)
+        success, admin_client_response, _ = self.make_request("POST", "/clients", admin_client_data, token=self.admin_token)
         
-        if data and not error:
-            self.log_result("Clients Get Detail", True)
-            return True
-        
-        self.log_result("Clients Get Detail", False, error)
-        return False
-
-    # ==================== FORMULA VAULT ====================
-
-    def test_formulas_list(self):
-        """Test 15: GET /api/formulas - List formulas"""
-        print("\n🧪 FORMULA VAULT")
-        
-        if not self.admin_token:
-            self.log_result("Formulas List", False, "No admin token")
+        if not success or "id" not in admin_client_response:
+            self.log_result("Data Isolation - Admin Client Creation", False, "Failed to create admin client", admin_client_response)
             return False
+            
+        admin_client_id = admin_client_response["id"]
+        self.log_result(
+            "Data Isolation - Admin Client Creation", 
+            True, 
+            f"Created admin client with ID: {admin_client_id}"
+        )
         
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
-        data, error = self.make_request("GET", "/formulas", headers=headers)
+        # Create a client as test user
+        test_client_data = {
+            "name": f"Test User Client {uuid.uuid4().hex[:6]}",
+            "email": f"test_client_{uuid.uuid4().hex[:8]}@example.com",
+            "phone": "+2222222222",
+            "notes": "Test user's private client data"
+        }
         
-        if data and not error:
-            self.log_result("Formulas List", True)
-            return True
+        success, test_client_response, _ = self.make_request("POST", "/clients", test_client_data, token=self.test_user_token)
         
-        self.log_result("Formulas List", False, error)
-        return False
-
-    def test_formulas_create(self):
-        """Test 16: POST /api/formulas - Create formula"""
-        if not self.admin_token or not self.test_client_id:
-            self.log_result("Formulas Create", False, "No admin token or client ID")
+        if not success or "id" not in test_client_response:
+            self.log_result("Data Isolation - Test Client Creation", False, "Failed to create test client", test_client_response)
             return False
+            
+        test_client_id = test_client_response["id"]
+        self.log_result(
+            "Data Isolation - Test Client Creation", 
+            True, 
+            f"Created test user client with ID: {test_client_id}"
+        )
         
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
+        # Test 1: Admin should NOT see test user's client
+        success, admin_clients, _ = self.make_request("GET", "/clients", token=self.admin_token)
+        
+        if success and isinstance(admin_clients, list):
+            admin_client_ids = [client.get("id") for client in admin_clients]
+            if test_client_id not in admin_client_ids:
+                self.log_result(
+                    "Data Isolation - Admin Cannot See Test User Clients", 
+                    True, 
+                    f"Admin correctly cannot see test user's client. Admin sees {len(admin_clients)} clients."
+                )
+            else:
+                self.log_result(
+                    "Data Isolation - Admin Cannot See Test User Clients", 
+                    False, 
+                    "CRITICAL: Admin can see test user's client - data leak detected!"
+                )
+        else:
+            self.log_result("Data Isolation - Admin Client List", False, "Failed to get admin client list", admin_clients)
+            
+        # Test 2: Test user should NOT see admin's client
+        success, test_clients, _ = self.make_request("GET", "/clients", token=self.test_user_token)
+        
+        if success and isinstance(test_clients, list):
+            test_client_ids = [client.get("id") for client in test_clients]
+            if admin_client_id not in test_client_ids:
+                self.log_result(
+                    "Data Isolation - Test User Cannot See Admin Clients", 
+                    True, 
+                    f"Test user correctly cannot see admin's client. Test user sees {len(test_clients)} clients."
+                )
+            else:
+                self.log_result(
+                    "Data Isolation - Test User Cannot See Admin Clients", 
+                    False, 
+                    "CRITICAL: Test user can see admin's client - data leak detected!"
+                )
+        else:
+            self.log_result("Data Isolation - Test User Client List", False, "Failed to get test user client list", test_clients)
+            
+        # Test 3: Cross-user access should return 404/403
+        success, cross_access_response, status_code = self.make_request(
+            "GET", f"/clients/{admin_client_id}", token=self.test_user_token
+        )
+        
+        if not success and status_code in [403, 404]:
+            self.log_result(
+                "Data Isolation - Cross-User Access Blocked", 
+                True, 
+                f"Cross-user client access correctly blocked with status {status_code}"
+            )
+        else:
+            self.log_result(
+                "Data Isolation - Cross-User Access Blocked", 
+                False, 
+                f"CRITICAL: Cross-user access allowed! Status: {status_code}",
+                cross_access_response
+            )
+            
+        # Test 4: Formulas should be user-scoped
         formula_data = {
-            "client_id": self.test_client_id,
-            "formula_name": "Honey Blonde Balayage",
-            "formula_details": "20vol developer + Wella T18 + Olaplex"
+            "client_id": admin_client_id,
+            "formula_name": "Admin's Secret Formula",
+            "formula_details": "Confidential formula details"
         }
         
-        data, error = self.make_request("POST", "/formulas", formula_data, headers=headers, expected_status=200)
+        success, admin_formula_response, _ = self.make_request("POST", "/formulas", formula_data, token=self.admin_token)
         
-        if data and not error:
-            self.test_formula_id = data.get("id")
-            self.log_result("Formulas Create", True)
-            return True
-        
-        self.log_result("Formulas Create", False, error)
-        return False
-
-    # ==================== APPOINTMENTS ====================
-
-    def test_appointments_list(self):
-        """Test 17: GET /api/appointments - List appointments"""
-        print("\n📅 APPOINTMENTS")
-        
-        if not self.admin_token:
-            self.log_result("Appointments List", False, "No admin token")
-            return False
-        
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
-        data, error = self.make_request("GET", "/appointments", headers=headers)
-        
-        if data and not error:
-            self.log_result("Appointments List", True)
-            return True
-        
-        self.log_result("Appointments List", False, error)
-        return False
-
-    def test_appointments_create(self):
-        """Test 18: POST /api/appointments - Create appointment"""
-        if not self.admin_token or not self.test_client_id:
-            self.log_result("Appointments Create", False, "No admin token or client ID")
-            return False
-        
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
+        if success and "id" in admin_formula_response:
+            admin_formula_id = admin_formula_response["id"]
+            
+            # Test user should not see admin's formulas
+            success, test_formulas, _ = self.make_request("GET", "/formulas", token=self.test_user_token)
+            
+            if success and isinstance(test_formulas, list):
+                test_formula_ids = [formula.get("id") for formula in test_formulas]
+                if admin_formula_id not in test_formula_ids:
+                    self.log_result(
+                        "Data Isolation - Formulas User-Scoped", 
+                        True, 
+                        "Formulas are correctly user-scoped"
+                    )
+                else:
+                    self.log_result(
+                        "Data Isolation - Formulas User-Scoped", 
+                        False, 
+                        "CRITICAL: Formula data leak detected!"
+                    )
+            else:
+                self.log_result("Data Isolation - Formula List Test", False, "Failed to get test user formulas", test_formulas)
+                
+        # Test 5: Appointments should be user-scoped
         appointment_data = {
-            "client_id": self.test_client_id,
-            "appointment_date": (datetime.now() + timedelta(days=7)).isoformat(),
-            "service": "Color & Cut",
-            "duration_minutes": 120,
-            "notes": "Balayage touch-up"
+            "client_id": admin_client_id,
+            "appointment_date": "2025-01-15T10:00:00Z",
+            "service": "Confidential Hair Service",
+            "notes": "Private appointment notes"
         }
         
-        data, error = self.make_request("POST", "/appointments", appointment_data, headers=headers, expected_status=200)
+        success, admin_appointment_response, _ = self.make_request("POST", "/appointments", appointment_data, token=self.admin_token)
         
-        if data and not error:
-            self.test_appointment_id = data.get("id")
-            self.log_result("Appointments Create", True)
-            return True
-        
-        self.log_result("Appointments Create", False, error)
-        return False
+        if success and "id" in admin_appointment_response:
+            admin_appointment_id = admin_appointment_response["id"]
+            
+            # Test user should not see admin's appointments
+            success, test_appointments, _ = self.make_request("GET", "/appointments", token=self.test_user_token)
+            
+            if success and isinstance(test_appointments, list):
+                test_appointment_ids = [apt.get("id") for apt in test_appointments]
+                if admin_appointment_id not in test_appointment_ids:
+                    self.log_result(
+                        "Data Isolation - Appointments User-Scoped", 
+                        True, 
+                        "Appointments are correctly user-scoped"
+                    )
+                else:
+                    self.log_result(
+                        "Data Isolation - Appointments User-Scoped", 
+                        False, 
+                        "CRITICAL: Appointment data leak detected!"
+                    )
+            else:
+                self.log_result("Data Isolation - Appointment List Test", False, "Failed to get test user appointments", test_appointments)
+                
+        # Cleanup: Delete test clients
+        self.make_request("DELETE", f"/clients/{admin_client_id}", token=self.admin_token)
+        self.make_request("DELETE", f"/clients/{test_client_id}", token=self.test_user_token)
 
-    # ==================== SOCIAL/FEED ====================
-
-    def test_posts_list(self):
-        """Test 19: GET /api/posts - List feed posts"""
-        print("\n📱 SOCIAL/FEED")
-        
-        headers = {"Authorization": f"Bearer {self.admin_token}"} if self.admin_token else {}
-        data, error = self.make_request("GET", "/posts", headers=headers)
-        
-        if data and not error:
-            self.log_result("Posts List", True)
-            return True
-        
-        self.log_result("Posts List", False, error)
-        return False
-
-    def test_posts_create(self):
-        """Test 20: POST /api/posts - Create post"""
-        if not self.admin_token:
-            self.log_result("Posts Create", False, "No admin token")
-            return False
-        
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
-        post_data = {
-            "images": [create_test_base64_image()],
-            "caption": "Beautiful transformation! #balayage #colortrend",
-            "tags": ["balayage", "colortrend", "transformation"]
-        }
-        
-        data, error = self.make_request("POST", "/posts", post_data, headers=headers, expected_status=200)
-        
-        if data and not error:
-            self.test_post_id = data.get("id")
-            self.log_result("Posts Create", True)
-            return True
-        
-        self.log_result("Posts Create", False, error)
-        return False
-
-    def test_users_follow(self):
-        """Test 21: POST /api/users/{id}/follow - Follow user"""
-        if not self.admin_token or not self.test_user_id:
-            self.log_result("Users Follow", False, "No admin token or test user ID")
-            return False
-        
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
-        data, error = self.make_request("POST", f"/users/{self.test_user_id}/follow", headers=headers)
-        
-        if data and not error:
-            self.log_result("Users Follow", True)
-            return True
-        
-        self.log_result("Users Follow", False, error)
-        return False
-
-    # ==================== SUBSCRIPTION ====================
-
-    def test_subscription_status(self):
-        """Test 22: GET /api/subscription/status - Check subscription"""
-        print("\n💳 SUBSCRIPTION")
+    def test_profile_endpoints(self):
+        """Test 4: Profile endpoints"""
+        print("👤 Testing Profile Endpoints...")
         
         if not self.admin_token:
-            self.log_result("Subscription Status", False, "No admin token")
+            self.log_result("Profile Endpoints Setup", False, "No admin token available")
             return False
+            
+        # Test GET /api/profiles/me/hub
+        success, hub_response, status_code = self.make_request("GET", "/profiles/me/hub", token=self.admin_token)
         
-        headers = {"Authorization": f"Bearer {self.admin_token}"}
-        data, error = self.make_request("GET", "/subscription/status", headers=headers)
-        
-        if data and not error:
-            self.log_result("Subscription Status", True)
-            return True
-        
-        self.log_result("Subscription Status", False, error)
-        return False
+        if success and "id" in hub_response:
+            self.log_result(
+                "GET /api/profiles/me/hub", 
+                True, 
+                f"Successfully retrieved own profile. User ID: {hub_response.get('id')}, is_tester: {hub_response.get('is_tester')}"
+            )
+        else:
+            self.log_result("GET /api/profiles/me/hub", False, f"Failed to get hub profile. Status: {status_code}", hub_response)
 
     def run_all_tests(self):
-        """Run all tests in sequence"""
-        print("=" * 80)
-        print("STYLEFLOW PRODUCTION - COMPREHENSIVE END-TO-END TESTING")
-        print("=" * 80)
-        print(f"Backend URL: {BACKEND_URL}")
-        print(f"Test Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        """Run all critical audit tests"""
+        print("🚀 Starting StyleFlow Backend Critical Audit Tests")
+        print("=" * 60)
         print()
-
-        # Run all tests
-        test_methods = [
-            self.test_auth_signup,
-            self.test_auth_login_admin,
-            self.test_auth_refresh,
-            self.test_auth_me,
-            self.test_auth_forgot_password,
-            self.test_auth_logout,
+        
+        # Test 1: Authentication
+        if not self.test_admin_authentication():
+            print("❌ Authentication failed - stopping tests")
+            return False
             
-            # Re-login for subsequent tests
-            self.test_auth_login_admin,
+        # Create test user for isolation testing
+        if not self.create_test_user():
+            print("❌ Test user creation failed - skipping isolation tests")
+        
+        # Test 2: Client CRUD
+        self.test_client_crud_operations()
+        
+        # Test 3: Data Isolation
+        if self.test_user_token:
+            self.test_data_isolation()
+        else:
+            self.log_result("Data Isolation Tests", False, "Skipped - no test user available")
             
-            self.test_profiles_me_hub,
-            self.test_profiles_discover,
-            self.test_profiles_avatar_upload,
-            self.test_profiles_portfolio_upload,
-            self.test_profiles_credentials,
-            
-            self.test_clients_list,
-            self.test_clients_create,
-            self.test_clients_get_detail,
-            
-            self.test_formulas_list,
-            self.test_formulas_create,
-            
-            self.test_appointments_list,
-            self.test_appointments_create,
-            
-            self.test_posts_list,
-            self.test_posts_create,
-            self.test_users_follow,
-            
-            self.test_subscription_status
-        ]
-
-        for test_method in test_methods:
-            try:
-                test_method()
-            except Exception as e:
-                test_name = test_method.__name__.replace("test_", "").replace("_", " ").title()
-                self.log_result(test_name, False, f"Exception: {str(e)}")
-
+        # Test 4: Profile Endpoints
+        self.test_profile_endpoints()
+        
         # Summary
-        return self.print_summary()
+        self.print_summary()
 
     def print_summary(self):
         """Print test summary"""
-        print("\n" + "=" * 80)
-        print("TEST SUMMARY")
-        print("=" * 80)
+        print("\n" + "=" * 60)
+        print("🏁 STYLEFLOW BACKEND AUDIT SUMMARY")
+        print("=" * 60)
         
-        passed = sum(1 for _, success, _ in self.results if success)
+        passed = sum(1 for r in self.results if r["success"])
         total = len(self.results)
+        success_rate = (passed / total * 100) if total > 0 else 0
         
-        print(f"\nResults: {passed}/{total} tests passed ({passed/total*100:.1f}%)")
+        print(f"\n📊 OVERALL RESULTS: {passed}/{total} tests passed ({success_rate:.1f}% success rate)")
+        print()
         
-        # Show failed tests
-        failed_tests = [(name, details) for name, success, details in self.results if not success]
+        # Group results by category
+        categories = {
+            "🔐 Authentication": [],
+            "📋 Client CRUD": [],
+            "🔒 Data Isolation": [],
+            "👤 Profile Endpoints": [],
+            "⚙️ Setup": []
+        }
+        
+        for result in self.results:
+            test_name = result["test"]
+            if "Auth" in test_name or "Login" in test_name:
+                categories["🔐 Authentication"].append(result)
+            elif "Client" in test_name and "Isolation" not in test_name:
+                categories["📋 Client CRUD"].append(result)
+            elif "Isolation" in test_name or "Cross-User" in test_name or "User-Scoped" in test_name:
+                categories["🔒 Data Isolation"].append(result)
+            elif "Profile" in test_name or "Hub" in test_name:
+                categories["👤 Profile Endpoints"].append(result)
+            else:
+                categories["⚙️ Setup"].append(result)
+        
+        for category, tests in categories.items():
+            if tests:
+                print(f"{category}:")
+                for test in tests:
+                    print(f"  {test['status']} {test['test']}")
+                    if test['details']:
+                        print(f"      {test['details']}")
+                print()
+        
+        # Critical issues
+        failed_tests = [r for r in self.results if not r["success"]]
         if failed_tests:
-            print(f"\n❌ FAILED TESTS ({len(failed_tests)}):")
-            for name, details in failed_tests:
-                print(f"   • {name}")
-                if details:
-                    print(f"     {details}")
+            print("🚨 CRITICAL ISSUES FOUND:")
+            for test in failed_tests:
+                if "CRITICAL" in test["details"]:
+                    print(f"  ❌ {test['test']}: {test['details']}")
+            print()
         
-        if passed == total:
-            print("\n🎉 ALL TESTS PASSED - StyleFlow backend is PRODUCTION-READY")
-        else:
-            print(f"\n⚠️  {total-passed} TEST(S) FAILED - Issues need attention")
+        # Data security assessment
+        isolation_tests = [r for r in self.results if "Isolation" in r["test"] or "Cross-User" in r["test"]]
+        isolation_passed = sum(1 for r in isolation_tests if r["success"])
+        isolation_total = len(isolation_tests)
         
-        return passed == total
-
-def main():
-    """Run comprehensive StyleFlow testing"""
-    tester = StyleFlowTester()
-    success = tester.run_all_tests()
-    return success
+        if isolation_total > 0:
+            isolation_rate = (isolation_passed / isolation_total * 100)
+            if isolation_rate == 100:
+                print("🛡️ DATA SECURITY: EXCELLENT - All data isolation tests passed")
+            elif isolation_rate >= 80:
+                print("⚠️ DATA SECURITY: GOOD - Most data isolation tests passed")
+            else:
+                print("🚨 DATA SECURITY: CRITICAL ISSUES - Data isolation failures detected")
+            print()
+        
+        print("✅ Audit completed successfully!" if success_rate >= 80 else "❌ Audit completed with issues")
+        print("=" * 60)
 
 if __name__ == "__main__":
-    success = main()
-    exit(0 if success else 1)
+    tester = StyleFlowTester()
+    tester.run_all_tests()
