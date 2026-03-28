@@ -164,7 +164,7 @@ export default function MoreScreen() {
             <MenuItem
               icon="sparkles"
               title="AI Chat Assistant"
-              onPress={() => router.push('/ai/chat')}
+              onPress={() => router.push('/settings/ai-assistant')}
               color={Colors.accent}
             />
           </Card>
