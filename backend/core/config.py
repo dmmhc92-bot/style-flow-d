@@ -19,6 +19,11 @@ class Settings:
     EMERGENT_LLM_KEY: str = os.environ.get('EMERGENT_LLM_KEY', '')
     RESEND_API_KEY: str = os.environ.get('RESEND_API_KEY', '')
     
+    # Cloudinary CDN
+    CLOUDINARY_CLOUD_NAME: str = os.environ.get('CLOUDINARY_CLOUD_NAME', '')
+    CLOUDINARY_API_KEY: str = os.environ.get('CLOUDINARY_API_KEY', '')
+    CLOUDINARY_API_SECRET: str = os.environ.get('CLOUDINARY_API_SECRET', '')
+    
     # App Config
     APP_SCHEME: str = "styleflow"
     APP_DOMAIN: str = os.environ.get('APP_DOMAIN', 'homestyleflowapp.com')
