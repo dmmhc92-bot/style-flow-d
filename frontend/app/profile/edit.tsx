@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import Input from '../../components/Input';
 import Button from '../../components/Button';
+import { SpecialtiesInput } from '../../components/SpecialtiesInput';
 import Colors from '../../constants/Colors';
 import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
@@ -35,7 +36,13 @@ export default function ProfileEditScreen() {
   const [bio, setBio] = useState(user?.bio || '');
   const [city, setCity] = useState(user?.city || '');
   const [salonName, setSalonName] = useState(user?.salon_name || '');
-  const [specialties, setSpecialties] = useState(user?.specialties || '');
+  const [specialties, setSpecialties] = useState<string[]>(() => {
+    // Handle both array and string formats
+    const raw = user?.specialties;
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string' && raw) return raw.split(',').map(s => s.trim()).filter(Boolean);
+    return [];
+  });
   const [instagram, setInstagram] = useState(user?.instagram_handle || '');
   const [tiktok, setTiktok] = useState(user?.tiktok_handle || '');
   const [website, setWebsite] = useState(user?.website_url || '');
@@ -56,7 +63,15 @@ export default function ProfileEditScreen() {
       setBio(user.bio || '');
       setCity(user.city || '');
       setSalonName(user.salon_name || '');
-      setSpecialties(user.specialties || '');
+      // Handle both array and string formats for specialties
+      const raw = user.specialties;
+      if (Array.isArray(raw)) {
+        setSpecialties(raw);
+      } else if (typeof raw === 'string' && raw) {
+        setSpecialties(raw.split(',').map(s => s.trim()).filter(Boolean));
+      } else {
+        setSpecialties([]);
+      }
       setInstagram(user.instagram_handle || '');
       setTiktok(user.tiktok_handle || '');
       setWebsite(user.website_url || '');
@@ -210,7 +225,7 @@ export default function ProfileEditScreen() {
         bio: bio.trim() || undefined,
         city: city.trim() || undefined,
         salon_name: salonName.trim() || undefined,
-        specialties: specialties.trim() || undefined,
+        specialties: specialties.length > 0 ? specialties : undefined,
         instagram_handle: instagram.trim() || undefined,
         tiktok_handle: tiktok.trim() || undefined,
         website_url: website.trim() || undefined,
@@ -345,11 +360,11 @@ export default function ProfileEditScreen() {
               numberOfLines={4}
             />
             
-            <Input
-              label="Specialties"
+            <SpecialtiesInput
               value={specialties}
-              onChangeText={setSpecialties}
-              placeholder="Hair color, balayage, cuts, extensions, etc."
+              onChange={setSpecialties}
+              maxSpecialties={8}
+              label="Specialties"
             />
           </View>
           
