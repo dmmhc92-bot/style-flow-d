@@ -107,9 +107,9 @@ user_problem_statement: "Build StyleFlow - a mobile-first hairstylist business a
 backend:
   - task: "JWT Authentication System"
     implemented: true
-    working: true
-    file: "backend/server.py"
-    stuck_count: 0
+    working: false
+    file: "backend/routes/auth.py"
+    stuck_count: 1
     priority: "high"
     needs_retesting: false
     status_history:
@@ -122,6 +122,9 @@ backend:
         - working: true
           agent: "testing"
           comment: "FORGOT PASSWORD WITH RESEND EMAIL INTEGRATION TESTING COMPLETED - 88.9% SUCCESS RATE (8/9 tests passed). COMPREHENSIVE VERIFICATION: ✅ Test user creation working ✅ Forgot password request (valid email) - returns security message and creates database token ✅ Forgot password request (non-existent email) - returns same security message, no token created ✅ Reset token verification - returns masked email and valid status ✅ Password reset with valid token - updates password and deletes used token ✅ Login with new password - authentication successful ✅ Old token invalidation - properly deleted after use ✅ Invalid token handling - proper 400 error responses ✅ RESEND EMAIL INTEGRATION CONFIRMED WORKING - Direct API test successful with email ID: 7a88f8b5-ff9e-48ec-a367-351f27ff489d. MINOR: Email activity not visible in backend logs (correct for security). All forgot password flows working perfectly with proper security measures and Resend email delivery."
+        - working: false
+          agent: "testing"
+          comment: "JWT AUTH SYSTEM OVERHAUL TESTING COMPLETED - 90% SUCCESS RATE (9/10 tests passed). COMPREHENSIVE VERIFICATION OF NEW JWT FEATURES: ✅ BASIC AUTH FLOW: Login/signup working with token, refresh_token, and is_tester fields in response ✅ JWT REFRESH TOKEN SYSTEM: POST /api/auth/refresh with X-Refresh-Token header working, returns new token pair ✅ INVALID REFRESH TOKEN: Correctly rejects invalid tokens with 401 ✅ ISTESTER APP STORE BYPASS: Both tester@styleflow.com and appreview@apple.com auto-get is_tester=true, is_admin=true, subscription_status=active ✅ PASSWORD RESET VIA RESEND: Forgot password request working, sends emails via Resend API, token verification endpoint working ✅ AUTH ME ENDPOINT: GET /api/auth/me returns is_tester field and all required user data. CRITICAL ISSUE FOUND: Token revocation (logout) not working properly - refresh tokens still work after logout due to bug in refresh endpoint logic (line 205 in auth.py: condition 'if stored_jti and token_jti != stored_jti' skips check when stored_jti is None after logout). RESEND INTEGRATION CONFIRMED WORKING: Email sending successful, password reset tokens created in database. All core JWT features functional except logout token revocation."
   
   - task: "Client Management CRUD"
     implemented: true
@@ -531,8 +534,9 @@ metadata:
 
 test_plan:
   current_focus: 
-    - "Subscription Flow & Paywall"
-  stuck_tasks: []
+    - "Token Revocation Bug Fix"
+  stuck_tasks:
+    - "JWT Authentication System - Token Revocation Bug"
   test_all: false
   test_priority: "high_first"
 
@@ -583,5 +587,9 @@ agent_communication:
       message: "FINAL MOBILE-RUNTIME VALIDATION COMPLETED - PRODUCTION READY. Comprehensive mobile testing on iPhone 14 (390x844) with admin@styleflow.com credentials: ✅ AUTHENTICATION FLOWS: Login screen displays correctly with premium dark theme, credentials fill properly, Sign In button functional, Signup navigation working, Forgot Password accessible ✅ CLIENT CRUD FLOW (CRITICAL): Clients tab accessible, + button for add client working, form navigation to /client/add functional, all form fields present (Name/Email/Phone), Save Client button operational ✅ FORMULAS FLOW: More → Formula Vault navigation working, formulas screen loads correctly ✅ DASHBOARD BUTTONS: All 4 stat cards accessible (Today's Appts, Total Clients, VIP Clients, Followers), Quick Actions buttons present (New Client, Book Appointment) ✅ FEED & SOCIAL: Feed tab accessible, Trending/New/Following tab switches operational, no hook errors detected ✅ NAVIGATION INTEGRITY: All 5 bottom tabs working (Home, Feed, Clients, Discover, More), tab switching functional, no blank screens or crashes ✅ SESSION PERSISTENCE: User stays logged in during navigation, logout functionality working ✅ ERROR CHECK: No red error screens, no JavaScript errors, no undefined errors in UI. FINAL VERDICT: StyleFlow app is READY FOR PRODUCTION PUBLISH. All critical mobile flows verified and functional."
     - agent: "testing"
       message: "SUBSCRIPTION FLOW VALIDATION REQUESTED - Testing subscription paywall UI, button interactions, navigation, and edge cases on iPhone 14 (390x844) dimensions. Will test: 1) Paywall screen UI (price, features, buttons) 2) Button interactions (Subscribe Now, Restore Purchases, Terms, Privacy, X button) 3) Navigation flows 4) Edge cases (loading, errors, text readability). Using admin@styleflow.com / Admin1234! credentials for testing."
+    - agent: "main"
+      message: "JWT AUTH SYSTEM OVERHAUL TESTING REQUIRED. Previous agent overwrote auth files with new JWT refresh token logic, isTester bypass, and Resend integration. Test the following NEW endpoints: 1) POST /api/auth/login - verify returns token AND refresh_token AND is_tester flag 2) POST /api/auth/refresh (header X-Refresh-Token) - verify returns new token pair 3) POST /api/auth/forgot-password - verify sends email via Resend SDK 4) GET /api/auth/verify-reset-token/{token} - verify token validation 5) POST /api/auth/reset-password - verify password update with token 6) POST /api/auth/logout - verify refresh token revocation. Also test: Tester account creation (appreview@apple.com, tester@styleflow.com) should auto-get is_tester=true, is_admin=true, subscription_status=active. Admin credentials: admin@styleflow.com / Admin1234!"
     - agent: "testing"
       message: "SUBSCRIPTION FLOW VALIDATION COMPLETED - 100% SUCCESS RATE (iPhone 14: 390x844). COMPREHENSIVE TESTING RESULTS: ✅ PAYWALL SCREEN UI: Perfect score 14/14 elements found including Hero title 'Upgrade to Pro', Price display '$9.99/month', All 6 premium features (Unlimited clients, Advanced analytics, AI Assistant unlimited, Priority support, Custom branding, Export data), Subscribe Now button, Restore Purchases link, Terms of Service link, Privacy Policy link, Auto-renewal legal text ✅ BUTTON INTERACTIONS: Subscribe Now button working (triggers appropriate response), Restore Purchases working (shows no purchases found message) ✅ NAVIGATION: Terms of Service navigation working (loads complete terms page with proper content), Privacy Policy navigation working (loads complete privacy page with proper content), Close/back navigation working ✅ EDGE CASES: No error messages detected, Page loads without blank screens, Text readable and visible on mobile, Mobile responsive design perfect for iPhone 14, All buttons tappable and functional. FINAL VERDICT: StyleFlow subscription flow is PRODUCTION-READY for mobile deployment with complete paywall functionality and proper legal compliance."
+    - agent: "testing"
+      message: "JWT AUTH SYSTEM OVERHAUL TESTING COMPLETED - 90% SUCCESS RATE (9/10 tests passed). COMPREHENSIVE VERIFICATION OF NEW JWT FEATURES: ✅ BASIC AUTH FLOW: Login/signup working with token, refresh_token, and is_tester fields in response ✅ JWT REFRESH TOKEN SYSTEM: POST /api/auth/refresh with X-Refresh-Token header working, returns new token pair ✅ INVALID REFRESH TOKEN: Correctly rejects invalid tokens with 401 ✅ ISTESTER APP STORE BYPASS: Both tester@styleflow.com and appreview@apple.com auto-get is_tester=true, is_admin=true, subscription_status=active ✅ PASSWORD RESET VIA RESEND: Forgot password request working, sends emails via Resend API, token verification endpoint working ✅ AUTH ME ENDPOINT: GET /api/auth/me returns is_tester field and all required user data. CRITICAL ISSUE FOUND: Token revocation (logout) not working properly - refresh tokens still work after logout due to bug in refresh endpoint logic (line 205 in auth.py: condition 'if stored_jti and token_jti != stored_jti' skips check when stored_jti is None after logout). RESEND INTEGRATION CONFIRMED WORKING: Email sending successful, password reset tokens created in database. All core JWT features functional except logout token revocation."
