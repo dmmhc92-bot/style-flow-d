@@ -2,16 +2,18 @@
 # PROFILES.PY - Stylist Hub Profile & Avatar Management
 # ═══════════════════════════════════════════════════════════════════════════════
 # LOCK_STYLIST_HUB_V1: 2025-03-28
+# UPDATED: Avatar Upload with validation (JPG/PNG, 5MB max)
 #
 # Features:
 #   - Cloudinary avatar upload (JPG/PNG, optimized delivery)
+#   - Portfolio image management
 #   - Credential/License badge management
 #   - Enhanced discovery search (City, Name, Specialty)
 #   - Tester account pre-population for App Store review
 # ═══════════════════════════════════════════════════════════════════════════════
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from typing import Optional, List
 from datetime import datetime
 from bson import ObjectId
@@ -19,12 +21,19 @@ import cloudinary
 import cloudinary.uploader
 import base64
 import logging
+import re
 
 from core.database import db
 from core.config import settings
 from core.dependencies import get_current_user
 
 router = APIRouter(prefix="/profiles", tags=["Stylist Hub"])
+
+# ==================== CONSTANTS ====================
+
+MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024  # 5MB limit for ultimate speed
+ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png']
+ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png']
 
 # Initialize Cloudinary
 cloudinary.config(
@@ -38,6 +47,59 @@ cloudinary.config(
 
 class AvatarUpload(BaseModel):
     image_base64: str  # Base64 encoded JPG/PNG
+    
+    @validator('image_base64')
+    def validate_image(cls, v):
+        if not v:
+            raise ValueError('No image data provided')
+        
+        # Remove data URL prefix if present
+        clean_data = v
+        if 'base64,' in v:
+            # Extract mime type for validation
+            header = v.split('base64,')[0]
+            if not any(mime in header.lower() for mime in ['image/jpeg', 'image/jpg', 'image/png']):
+                raise ValueError('Only JPG and PNG images are allowed')
+            clean_data = v.split('base64,')[1]
+        
+        # Check base64 size (approximate - base64 is ~33% larger than binary)
+        try:
+            decoded_size = len(base64.b64decode(clean_data))
+            if decoded_size > MAX_IMAGE_SIZE_BYTES:
+                raise ValueError(f'Image too large. Maximum size is 5MB, got {decoded_size / (1024*1024):.1f}MB')
+        except Exception as e:
+            if 'Image too large' in str(e):
+                raise
+            raise ValueError('Invalid base64 image data')
+        
+        return v
+
+class PortfolioImageUpload(BaseModel):
+    image_base64: str
+    caption: Optional[str] = None
+    
+    @validator('image_base64')
+    def validate_image(cls, v):
+        if not v:
+            raise ValueError('No image data provided')
+        
+        clean_data = v
+        if 'base64,' in v:
+            header = v.split('base64,')[0]
+            if not any(mime in header.lower() for mime in ['image/jpeg', 'image/jpg', 'image/png']):
+                raise ValueError('Only JPG and PNG images are allowed')
+            clean_data = v.split('base64,')[1]
+        
+        try:
+            decoded_size = len(base64.b64decode(clean_data))
+            if decoded_size > MAX_IMAGE_SIZE_BYTES:
+                raise ValueError(f'Image too large. Maximum size is 5MB')
+        except Exception as e:
+            if 'Image too large' in str(e):
+                raise
+            raise ValueError('Invalid base64 image data')
+        
+        return v
 
 class CredentialUpdate(BaseModel):
     license_number: Optional[str] = None
@@ -97,30 +159,31 @@ async def upload_avatar(
 ):
     """
     Upload profile picture to Cloudinary
-    Accepts: Base64 encoded JPG/PNG
-    Returns: Optimized Cloudinary URL
+    
+    VALIDATION RULES:
+    - Only JPG/PNG images allowed
+    - Maximum file size: 5MB
+    - Images auto-cropped to 400x400 with face detection
+    
+    Returns: Optimized Cloudinary URL or base64 fallback
     """
     try:
-        # Validate base64 image
+        # Get clean base64 data
         image_data = data.image_base64
-        if not image_data:
-            raise HTTPException(status_code=400, detail="No image data provided")
-        
-        # Remove data URL prefix if present
         if "base64," in image_data:
             image_data = image_data.split("base64,")[1]
         
         # Check Cloudinary configuration
-        if not getattr(settings, 'CLOUDINARY_API_KEY', ''):
-            # Fallback: Store as base64 if Cloudinary not configured
-            avatar_url = f"data:image/jpeg;base64,{image_data}"
-        else:
+        cloudinary_configured = bool(getattr(settings, 'CLOUDINARY_API_KEY', ''))
+        
+        if cloudinary_configured:
             # Upload to Cloudinary with optimization
             upload_result = cloudinary.uploader.upload(
                 f"data:image/jpeg;base64,{image_data}",
                 folder="styleflow/avatars",
                 public_id=f"user_{str(current_user['_id'])}",
                 overwrite=True,
+                resource_type="image",
                 transformation=[
                     {"width": 400, "height": 400, "crop": "fill", "gravity": "face"},
                     {"quality": "auto:good"},
@@ -128,25 +191,147 @@ async def upload_avatar(
                 ]
             )
             avatar_url = upload_result.get("secure_url")
+            storage_type = "cloudinary"
+        else:
+            # Fallback: Store as base64 if Cloudinary not configured
+            avatar_url = f"data:image/jpeg;base64,{image_data}"
+            storage_type = "base64"
         
-        # Update user profile with avatar URL
+        # Update user profile with both fields for compatibility
         await db.users.update_one(
             {"_id": current_user["_id"]},
             {"$set": {
                 "profile_photo": avatar_url,
-                "avatar_updated_at": datetime.utcnow()
+                "profile_image_url": avatar_url,  # Schema field
+                "avatar_updated_at": datetime.utcnow(),
+                "avatar_storage_type": storage_type
             }}
         )
         
         return {
             "success": True,
             "avatar_url": avatar_url,
+            "storage_type": storage_type,
             "message": "Avatar uploaded successfully"
         }
         
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         logging.error(f"Avatar upload failed: {e}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+# ==================== PORTFOLIO IMAGE UPLOAD ====================
+
+@router.post("/portfolio")
+async def upload_portfolio_image(
+    data: PortfolioImageUpload,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Upload a portfolio/work image
+    
+    VALIDATION RULES:
+    - Only JPG/PNG images allowed
+    - Maximum file size: 5MB
+    - Images optimized for gallery display
+    """
+    user_id = str(current_user["_id"])
+    
+    try:
+        # Get clean base64 data
+        image_data = data.image_base64
+        if "base64," in image_data:
+            image_data = image_data.split("base64,")[1]
+        
+        # Check Cloudinary configuration
+        cloudinary_configured = bool(getattr(settings, 'CLOUDINARY_API_KEY', ''))
+        
+        # Generate unique ID for this portfolio item
+        import uuid
+        portfolio_id = str(uuid.uuid4())[:8]
+        
+        if cloudinary_configured:
+            # Upload to Cloudinary with optimization
+            upload_result = cloudinary.uploader.upload(
+                f"data:image/jpeg;base64,{image_data}",
+                folder="styleflow/portfolio",
+                public_id=f"user_{user_id}_{portfolio_id}",
+                resource_type="image",
+                transformation=[
+                    {"width": 800, "height": 800, "crop": "limit"},
+                    {"quality": "auto:good"},
+                    {"fetch_format": "auto"}
+                ]
+            )
+            image_url = upload_result.get("secure_url")
+        else:
+            # Fallback: Store as base64
+            image_url = f"data:image/jpeg;base64,{image_data}"
+        
+        # Create portfolio document
+        portfolio_doc = {
+            "user_id": user_id,
+            "image": image_url,
+            "caption": data.caption or "",
+            "created_at": datetime.utcnow()
+        }
+        
+        result = await db.portfolio.insert_one(portfolio_doc)
+        
+        # Also update user's portfolio_images array
+        await db.users.update_one(
+            {"_id": current_user["_id"]},
+            {"$push": {"portfolio_images": image_url}}
+        )
+        
+        return {
+            "success": True,
+            "portfolio_id": str(result.inserted_id),
+            "image_url": image_url,
+            "message": "Portfolio image uploaded successfully"
+        }
+        
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logging.error(f"Portfolio upload failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@router.delete("/portfolio/{portfolio_id}")
+async def delete_portfolio_image(
+    portfolio_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete a portfolio image"""
+    user_id = str(current_user["_id"])
+    
+    try:
+        # Find the portfolio item
+        item = await db.portfolio.find_one({
+            "_id": ObjectId(portfolio_id),
+            "user_id": user_id
+        })
+        
+        if not item:
+            raise HTTPException(status_code=404, detail="Portfolio item not found")
+        
+        # Delete from database
+        await db.portfolio.delete_one({"_id": ObjectId(portfolio_id)})
+        
+        # Remove from user's portfolio_images array
+        image_url = item.get("image")
+        if image_url:
+            await db.users.update_one(
+                {"_id": current_user["_id"]},
+                {"$pull": {"portfolio_images": image_url}}
+            )
+        
+        return {"success": True, "message": "Portfolio image deleted"}
+        
+    except Exception as e:
+        logging.error(f"Portfolio delete failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== CREDENTIAL BADGES ====================
 

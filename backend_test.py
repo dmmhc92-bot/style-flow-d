@@ -1,407 +1,314 @@
 #!/usr/bin/env python3
 """
-STYLIST HUB BACKEND ENDPOINTS TESTING
-=====================================
-Testing the newly created /api/profiles/* endpoints for Stylist Hub functionality.
-
-Test Coverage:
-1. GET /api/profiles/discover - List stylists with filters
-2. GET /api/profiles/{user_id} - Get full profile for Stylist Hub  
-3. POST /api/profiles/avatar - Avatar upload (mock test)
-4. POST /api/profiles/credentials - Update credentials
-5. GET /api/profiles/me/hub - Quick access to own profile
-
-Admin credentials: admin@styleflow.com / Admin1234!
+StyleFlow Backend Testing - Avatar and Portfolio Upload Endpoints
+Testing the UPDATED avatar and portfolio upload endpoints with validation
 """
 
 import requests
 import json
 import base64
-from datetime import datetime
 import sys
+from datetime import datetime
 
-# Backend URL from frontend/.env
-BACKEND_URL = "https://hairflow-app-1.preview.emergentagent.com/api"
-
-# Test credentials
+# Configuration
+BASE_URL = "https://hairflow-app-1.preview.emergentagent.com/api"
 ADMIN_EMAIL = "admin@styleflow.com"
 ADMIN_PASSWORD = "Admin1234!"
 
-class StylistHubTester:
-    def __init__(self):
-        self.session = requests.Session()
-        self.auth_token = None
-        self.user_id = None
-        self.test_results = []
+# Test credentials
+admin_token = None
+portfolio_id = None
+
+def log_test(test_name, status, details=""):
+    """Log test results with timestamp"""
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    status_symbol = "✅" if status else "❌"
+    print(f"[{timestamp}] {status_symbol} {test_name}")
+    if details:
+        print(f"    {details}")
+    return status
+
+def create_small_test_image():
+    """Create a small valid base64 JPG image for testing"""
+    # Create a simple 10x10 red JPEG image
+    try:
+        from PIL import Image
+        import io
+        import base64
         
-    def log_result(self, test_name, success, details=""):
-        """Log test result"""
-        status = "✅ PASS" if success else "❌ FAIL"
-        self.test_results.append({
-            "test": test_name,
-            "success": success,
-            "details": details
+        # Create a small 10x10 red image
+        img = Image.new('RGB', (10, 10), color='red')
+        
+        # Save to bytes
+        img_bytes = io.BytesIO()
+        img.save(img_bytes, format='JPEG', quality=85)
+        img_bytes.seek(0)
+        
+        # Convert to base64
+        img_base64 = base64.b64encode(img_bytes.read()).decode('utf-8')
+        return f"data:image/jpeg;base64,{img_base64}"
+    except ImportError:
+        # Fallback to a known working small JPEG
+        return "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwA/8A"
+
+def create_large_test_image():
+    """Create a large base64 image that exceeds 5MB limit"""
+    # Create a valid base64 string that will decode to more than 5MB
+    # We'll create a string that when base64 decoded will be > 5MB
+    # Base64 encoding increases size by ~33%, so we need raw data > 5MB
+    import base64
+    large_binary_data = b'A' * (6 * 1024 * 1024)  # 6MB of binary data
+    large_base64 = base64.b64encode(large_binary_data).decode('utf-8')
+    return f"data:image/jpeg;base64,{large_base64}"
+
+def login_admin():
+    """Login as admin and get JWT token"""
+    global admin_token
+    
+    try:
+        response = requests.post(f"{BASE_URL}/auth/login", json={
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD
         })
-        print(f"{status}: {test_name}")
-        if details:
-            print(f"   Details: {details}")
-        print()
-    
-    def authenticate(self):
-        """Authenticate with admin credentials"""
-        print("🔐 AUTHENTICATING WITH ADMIN CREDENTIALS...")
         
-        try:
-            response = self.session.post(f"{BACKEND_URL}/auth/login", json={
-                "email": ADMIN_EMAIL,
-                "password": ADMIN_PASSWORD
-            })
-            
-            if response.status_code == 200:
-                data = response.json()
-                self.auth_token = data.get("token")  # Changed from access_token to token
-                self.user_id = data.get("user", {}).get("id")
-                
-                # Set authorization header for all future requests
-                self.session.headers.update({
-                    "Authorization": f"Bearer {self.auth_token}"
-                })
-                
-                self.log_result("Admin Authentication", True, f"User ID: {self.user_id}")
-                return True
+        if response.status_code == 200:
+            data = response.json()
+            admin_token = data.get("token")  # The endpoint returns "token" not "access_token"
+            if admin_token:
+                return log_test("Admin Login", True, f"Token obtained: {admin_token[:20]}...")
             else:
-                self.log_result("Admin Authentication", False, f"Status: {response.status_code}, Response: {response.text}")
-                return False
-                
-        except Exception as e:
-            self.log_result("Admin Authentication", False, f"Exception: {str(e)}")
-            return False
-    
-    def test_discover_stylists(self):
-        """Test GET /api/profiles/discover - List stylists with filters"""
-        print("🔍 TESTING STYLIST DISCOVERY ENDPOINT...")
+                return log_test("Admin Login", False, f"No token in response: {data}")
+        else:
+            return log_test("Admin Login", False, f"Status: {response.status_code}, Response: {response.text}")
+    except Exception as e:
+        return log_test("Admin Login", False, f"Exception: {str(e)}")
+
+def get_auth_headers():
+    """Get authorization headers with JWT token"""
+    if not admin_token:
+        return {}
+    return {"Authorization": f"Bearer {admin_token}"}
+
+def test_avatar_upload_valid():
+    """Test POST /api/profiles/avatar with valid JPG base64 image"""
+    try:
+        small_image = create_small_test_image()
         
-        try:
-            # Test 1: Basic discover without filters
-            response = self.session.get(f"{BACKEND_URL}/profiles/discover")
+        response = requests.post(
+            f"{BASE_URL}/profiles/avatar",
+            json={"image_base64": small_image},
+            headers=get_auth_headers()
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            required_fields = ["avatar_url", "storage_type", "success"]
+            missing_fields = [field for field in required_fields if field not in data]
             
-            if response.status_code == 200:
-                data = response.json()
-                if isinstance(data, list):
-                    self.log_result("Discover Stylists - Basic", True, f"Found {len(data)} stylists")
-                    
-                    # Verify response structure
-                    if data and len(data) > 0:
-                        stylist = data[0]
-                        required_fields = ["id", "full_name", "followers_count", "portfolio_count", "is_verified"]
-                        missing_fields = [field for field in required_fields if field not in stylist]
-                        
-                        if not missing_fields:
-                            self.log_result("Discover Response Structure", True, "All required fields present")
-                        else:
-                            self.log_result("Discover Response Structure", False, f"Missing fields: {missing_fields}")
-                    else:
-                        self.log_result("Discover Response Structure", True, "No stylists to verify structure")
+            if missing_fields:
+                return log_test("Avatar Upload (Valid)", False, f"Missing fields: {missing_fields}")
+            
+            if data.get("success") != True:
+                return log_test("Avatar Upload (Valid)", False, f"Success field is not True: {data.get('success')}")
+            
+            return log_test("Avatar Upload (Valid)", True, 
+                          f"Avatar URL: {data.get('avatar_url')[:50]}..., Storage: {data.get('storage_type')}")
+        else:
+            return log_test("Avatar Upload (Valid)", False, 
+                          f"Status: {response.status_code}, Response: {response.text}")
+    except Exception as e:
+        return log_test("Avatar Upload (Valid)", False, f"Exception: {str(e)}")
+
+def test_avatar_upload_empty():
+    """Test POST /api/profiles/avatar with empty image (should fail 422)"""
+    try:
+        response = requests.post(
+            f"{BASE_URL}/profiles/avatar",
+            json={"image_base64": ""},
+            headers=get_auth_headers()
+        )
+        
+        if response.status_code == 422:
+            return log_test("Avatar Upload (Empty Image)", True, "Correctly rejected empty image with 422")
+        else:
+            return log_test("Avatar Upload (Empty Image)", False, 
+                          f"Expected 422, got {response.status_code}, Response: {response.text}")
+    except Exception as e:
+        return log_test("Avatar Upload (Empty Image)", False, f"Exception: {str(e)}")
+
+def test_avatar_upload_size_validation():
+    """Test POST /api/profiles/avatar size validation (5MB max)"""
+    try:
+        large_image = create_large_test_image()
+        
+        response = requests.post(
+            f"{BASE_URL}/profiles/avatar",
+            json={"image_base64": large_image},
+            headers=get_auth_headers()
+        )
+        
+        if response.status_code == 422:
+            error_detail = response.json().get("detail", [])
+            if isinstance(error_detail, list) and len(error_detail) > 0:
+                error_msg = error_detail[0].get("msg", "")
+                if "too large" in error_msg.lower() or "5mb" in error_msg.lower():
+                    return log_test("Avatar Upload (Size Validation)", True, 
+                                  f"Correctly rejected large image: {error_msg}")
                 else:
-                    self.log_result("Discover Stylists - Basic", False, "Response is not a list")
+                    return log_test("Avatar Upload (Size Validation)", False, 
+                                  f"Got 422 but wrong error message: {error_msg}")
             else:
-                self.log_result("Discover Stylists - Basic", False, f"Status: {response.status_code}, Response: {response.text}")
-            
-            # Test 2: Discover with filters
-            response = self.session.get(f"{BACKEND_URL}/profiles/discover", params={
-                "featured": True,
-                "limit": 10
-            })
-            
-            if response.status_code == 200:
-                data = response.json()
-                self.log_result("Discover Stylists - Featured Filter", True, f"Found {len(data)} featured stylists")
-            else:
-                self.log_result("Discover Stylists - Featured Filter", False, f"Status: {response.status_code}")
-                
-            # Test 3: Discover with name search
-            response = self.session.get(f"{BACKEND_URL}/profiles/discover", params={
-                "name": "admin",
-                "limit": 5
-            })
-            
-            if response.status_code == 200:
-                data = response.json()
-                self.log_result("Discover Stylists - Name Search", True, f"Found {len(data)} stylists matching 'admin'")
-            else:
-                self.log_result("Discover Stylists - Name Search", False, f"Status: {response.status_code}")
-                
-        except Exception as e:
-            self.log_result("Discover Stylists - Exception", False, f"Exception: {str(e)}")
+                return log_test("Avatar Upload (Size Validation)", False, 
+                              f"Got 422 but unexpected error format: {error_detail}")
+        else:
+            return log_test("Avatar Upload (Size Validation)", False, 
+                          f"Expected 422, got {response.status_code}, Response: {response.text}")
+    except Exception as e:
+        return log_test("Avatar Upload (Size Validation)", False, f"Exception: {str(e)}")
+
+def test_portfolio_upload():
+    """Test POST /api/profiles/portfolio - Portfolio image upload"""
+    global portfolio_id
     
-    def test_get_stylist_profile(self):
-        """Test GET /api/profiles/{user_id} - Get full profile for Stylist Hub"""
-        print("👤 TESTING STYLIST PROFILE ENDPOINT...")
+    try:
+        small_image = create_small_test_image()
         
-        if not self.user_id:
-            self.log_result("Get Stylist Profile", False, "No user ID available for testing")
-            return
+        response = requests.post(
+            f"{BASE_URL}/profiles/portfolio",
+            json={
+                "image_base64": small_image,
+                "caption": "Test portfolio image upload"
+            },
+            headers=get_auth_headers()
+        )
         
-        try:
-            response = self.session.get(f"{BACKEND_URL}/profiles/{self.user_id}")
+        if response.status_code == 200:
+            data = response.json()
+            required_fields = ["portfolio_id", "image_url", "success"]
+            missing_fields = [field for field in required_fields if field not in data]
             
-            if response.status_code == 200:
-                data = response.json()
-                
-                # Verify required fields for Stylist Hub profile
-                required_fields = [
-                    "id", "full_name", "followers_count", "following_count", 
-                    "posts_count", "portfolio_count", "is_following", "is_own_profile",
-                    "is_verified", "portfolio"
-                ]
-                
-                missing_fields = [field for field in required_fields if field not in data]
-                
-                if not missing_fields:
-                    self.log_result("Get Stylist Profile - Structure", True, "All required fields present")
-                    
-                    # Verify portfolio structure
-                    portfolio = data.get("portfolio", [])
-                    if isinstance(portfolio, list):
-                        self.log_result("Get Stylist Profile - Portfolio", True, f"Portfolio has {len(portfolio)} items")
-                        
-                        # Check if tester account has demo portfolio
-                        if data.get("is_own_profile") and len(portfolio) > 0:
-                            self.log_result("Tester Portfolio Auto-Population", True, "Demo portfolio items found")
-                        else:
-                            self.log_result("Tester Portfolio Auto-Population", True, "No demo portfolio (expected for non-tester)")
-                    else:
-                        self.log_result("Get Stylist Profile - Portfolio", False, "Portfolio is not a list")
-                else:
-                    self.log_result("Get Stylist Profile - Structure", False, f"Missing fields: {missing_fields}")
-                    
-            else:
-                self.log_result("Get Stylist Profile", False, f"Status: {response.status_code}, Response: {response.text}")
-                
-        except Exception as e:
-            self.log_result("Get Stylist Profile - Exception", False, f"Exception: {str(e)}")
+            if missing_fields:
+                return log_test("Portfolio Upload", False, f"Missing fields: {missing_fields}")
+            
+            if data.get("success") != True:
+                return log_test("Portfolio Upload", False, f"Success field is not True: {data.get('success')}")
+            
+            portfolio_id = data.get("portfolio_id")
+            return log_test("Portfolio Upload", True, 
+                          f"Portfolio ID: {portfolio_id}, Image URL: {data.get('image_url')[:50]}...")
+        else:
+            return log_test("Portfolio Upload", False, 
+                          f"Status: {response.status_code}, Response: {response.text}")
+    except Exception as e:
+        return log_test("Portfolio Upload", False, f"Exception: {str(e)}")
+
+def test_portfolio_delete():
+    """Test DELETE /api/profiles/portfolio/{id} - Delete portfolio"""
+    global portfolio_id
     
-    def test_avatar_upload(self):
-        """Test POST /api/profiles/avatar - Avatar upload (mock test)"""
-        print("📸 TESTING AVATAR UPLOAD ENDPOINT...")
-        
-        try:
-            # Create a small test image in base64 (1x1 pixel PNG)
-            test_image_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAI9jU77zgAAAABJRU5ErkJggg=="
-            
-            response = self.session.post(f"{BACKEND_URL}/profiles/avatar", json={
-                "image_base64": test_image_base64
-            })
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                if data.get("success") and "avatar_url" in data:
-                    self.log_result("Avatar Upload", True, f"Avatar uploaded successfully: {data.get('message')}")
-                    
-                    # Verify avatar URL format
-                    avatar_url = data.get("avatar_url")
-                    if avatar_url and (avatar_url.startswith("http") or avatar_url.startswith("data:")):
-                        self.log_result("Avatar URL Format", True, "Valid avatar URL returned")
-                    else:
-                        self.log_result("Avatar URL Format", False, f"Invalid avatar URL: {avatar_url}")
-                else:
-                    self.log_result("Avatar Upload", False, "Missing success flag or avatar_url in response")
-            else:
-                self.log_result("Avatar Upload", False, f"Status: {response.status_code}, Response: {response.text}")
-                
-        except Exception as e:
-            self.log_result("Avatar Upload - Exception", False, f"Exception: {str(e)}")
+    if not portfolio_id:
+        return log_test("Portfolio Delete", False, "No portfolio_id available from previous test")
     
-    def test_credentials_management(self):
-        """Test POST /api/profiles/credentials - Update credentials"""
-        print("🏆 TESTING CREDENTIALS MANAGEMENT...")
+    try:
+        response = requests.delete(
+            f"{BASE_URL}/profiles/portfolio/{portfolio_id}",
+            headers=get_auth_headers()
+        )
         
-        try:
-            # Test updating credentials
-            credentials_data = {
-                "license_number": "ST123456",
-                "license_state": "CA",
-                "is_verified": True,
-                "certifications": ["Advanced Color Theory", "Balayage Specialist"]
-            }
-            
-            response = self.session.post(f"{BACKEND_URL}/profiles/credentials", json=credentials_data)
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                if data.get("success"):
-                    self.log_result("Update Credentials", True, data.get("message", "Credentials updated"))
-                    
-                    # Test retrieving credentials
-                    get_response = self.session.get(f"{BACKEND_URL}/profiles/credentials")
-                    
-                    if get_response.status_code == 200:
-                        cred_data = get_response.json()
-                        
-                        # Verify the updated data
-                        if (cred_data.get("license_number") == "ST123456" and 
-                            cred_data.get("license_state") == "CA" and
-                            cred_data.get("is_verified") == True):
-                            self.log_result("Get Credentials", True, "Credentials retrieved and verified")
-                        else:
-                            self.log_result("Get Credentials", False, f"Credential data mismatch: {cred_data}")
-                    else:
-                        self.log_result("Get Credentials", False, f"Status: {get_response.status_code}")
-                else:
-                    self.log_result("Update Credentials", False, "Missing success flag in response")
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("success") == True:
+                return log_test("Portfolio Delete", True, f"Successfully deleted portfolio item {portfolio_id}")
             else:
-                self.log_result("Update Credentials", False, f"Status: {response.status_code}, Response: {response.text}")
-                
-        except Exception as e:
-            self.log_result("Credentials Management - Exception", False, f"Exception: {str(e)}")
-    
-    def test_my_hub_profile(self):
-        """Test GET /api/profiles/me/hub - Quick access to own profile"""
-        print("🏠 TESTING MY HUB PROFILE ENDPOINT...")
+                return log_test("Portfolio Delete", False, f"Success field is not True: {data}")
+        else:
+            return log_test("Portfolio Delete", False, 
+                          f"Status: {response.status_code}, Response: {response.text}")
+    except Exception as e:
+        return log_test("Portfolio Delete", False, f"Exception: {str(e)}")
+
+def test_profile_me_hub():
+    """Test GET /api/profiles/me/hub after avatar upload - Verify user schema updates"""
+    try:
+        response = requests.get(
+            f"{BASE_URL}/profiles/me/hub",
+            headers=get_auth_headers()
+        )
         
-        try:
-            response = self.session.get(f"{BACKEND_URL}/profiles/me/hub")
+        if response.status_code == 200:
+            data = response.json()
             
-            if response.status_code == 200:
-                data = response.json()
-                
-                # Verify required fields for own profile
-                required_fields = [
-                    "id", "full_name", "followers_count", "following_count", 
-                    "posts_count", "portfolio_count", "is_verified", "portfolio",
-                    "is_own_profile"
-                ]
-                
-                missing_fields = [field for field in required_fields if field not in data]
-                
-                if not missing_fields:
-                    self.log_result("My Hub Profile - Structure", True, "All required fields present")
-                    
-                    # Verify is_own_profile is True
-                    if data.get("is_own_profile") == True:
-                        self.log_result("My Hub Profile - Own Profile Flag", True, "is_own_profile correctly set to True")
-                    else:
-                        self.log_result("My Hub Profile - Own Profile Flag", False, f"is_own_profile is {data.get('is_own_profile')}")
-                    
-                    # Verify user ID matches
-                    if data.get("id") == self.user_id:
-                        self.log_result("My Hub Profile - User ID Match", True, "Profile ID matches authenticated user")
-                    else:
-                        self.log_result("My Hub Profile - User ID Match", False, f"Profile ID {data.get('id')} != User ID {self.user_id}")
-                        
-                else:
-                    self.log_result("My Hub Profile - Structure", False, f"Missing fields: {missing_fields}")
-                    
-            else:
-                self.log_result("My Hub Profile", False, f"Status: {response.status_code}, Response: {response.text}")
-                
-        except Exception as e:
-            self.log_result("My Hub Profile - Exception", False, f"Exception: {str(e)}")
-    
-    def test_tester_account_population(self):
-        """Verify that tester accounts auto-populate with demo portfolio"""
-        print("🧪 TESTING TESTER ACCOUNT AUTO-POPULATION...")
-        
-        try:
-            # Check if current user is a tester
-            response = self.session.get(f"{BACKEND_URL}/auth/me")
+            # Check for profile_image_url field (this should be set after avatar upload)
+            profile_image_url = data.get("profile_photo")  # The endpoint returns profile_photo
+            if not profile_image_url:
+                return log_test("Profile Me Hub (Schema Check)", False, 
+                              "profile_photo field is missing or empty")
             
-            if response.status_code == 200:
-                user_data = response.json()
-                is_tester = user_data.get("is_tester", False)
-                
-                if is_tester:
-                    # Get profile to check portfolio
-                    profile_response = self.session.get(f"{BACKEND_URL}/profiles/me/hub")
-                    
-                    if profile_response.status_code == 200:
-                        profile_data = profile_response.json()
-                        portfolio = profile_data.get("portfolio", [])
-                        
-                        if len(portfolio) > 0:
-                            self.log_result("Tester Auto-Population", True, f"Tester account has {len(portfolio)} demo portfolio items")
-                            
-                            # Verify portfolio items have required fields
-                            first_item = portfolio[0]
-                            if "image" in first_item and "caption" in first_item:
-                                self.log_result("Demo Portfolio Structure", True, "Portfolio items have image and caption")
-                            else:
-                                self.log_result("Demo Portfolio Structure", False, "Portfolio items missing required fields")
-                        else:
-                            self.log_result("Tester Auto-Population", False, "Tester account has no demo portfolio items")
-                    else:
-                        self.log_result("Tester Auto-Population", False, f"Failed to get profile: {profile_response.status_code}")
-                else:
-                    self.log_result("Tester Auto-Population", True, "Non-tester account (auto-population not expected)")
-                    
-            else:
-                self.log_result("Tester Auto-Population", False, f"Failed to get user info: {response.status_code}")
-                
-        except Exception as e:
-            self.log_result("Tester Auto-Population - Exception", False, f"Exception: {str(e)}")
+            # Check for portfolio_images array existence
+            portfolio = data.get("portfolio", [])
+            if not isinstance(portfolio, list):
+                return log_test("Profile Me Hub (Schema Check)", False, 
+                              "portfolio field is not an array")
+            
+            # Check other required fields
+            required_fields = ["id", "full_name", "followers_count", "following_count", "posts_count", "portfolio_count"]
+            missing_fields = [field for field in required_fields if field not in data]
+            
+            if missing_fields:
+                return log_test("Profile Me Hub (Schema Check)", False, f"Missing fields: {missing_fields}")
+            
+            return log_test("Profile Me Hub (Schema Check)", True, 
+                          f"Profile image URL set: {profile_image_url[:50]}..., Portfolio count: {data.get('portfolio_count')}")
+        else:
+            return log_test("Profile Me Hub (Schema Check)", False, 
+                          f"Status: {response.status_code}, Response: {response.text}")
+    except Exception as e:
+        return log_test("Profile Me Hub (Schema Check)", False, f"Exception: {str(e)}")
+
+def run_all_tests():
+    """Run all avatar and portfolio upload tests"""
+    print("=" * 80)
+    print("STYLEFLOW AVATAR & PORTFOLIO UPLOAD ENDPOINTS TESTING")
+    print("=" * 80)
+    print(f"Backend URL: {BASE_URL}")
+    print(f"Admin Credentials: {ADMIN_EMAIL}")
+    print("=" * 80)
     
-    def run_all_tests(self):
-        """Run all Stylist Hub profile endpoint tests"""
-        print("=" * 60)
-        print("STYLIST HUB BACKEND ENDPOINTS TESTING")
-        print("=" * 60)
-        print()
-        
-        # Authenticate first
-        if not self.authenticate():
-            print("❌ AUTHENTICATION FAILED - CANNOT PROCEED WITH TESTS")
-            return
-        
-        print()
-        
-        # Run all tests
-        self.test_discover_stylists()
-        self.test_get_stylist_profile()
-        self.test_avatar_upload()
-        self.test_credentials_management()
-        self.test_my_hub_profile()
-        self.test_tester_account_population()
-        
-        # Print summary
-        print("=" * 60)
-        print("TEST SUMMARY")
-        print("=" * 60)
-        
-        total_tests = len(self.test_results)
-        passed_tests = sum(1 for result in self.test_results if result["success"])
-        failed_tests = total_tests - passed_tests
-        success_rate = (passed_tests / total_tests * 100) if total_tests > 0 else 0
-        
-        print(f"Total Tests: {total_tests}")
-        print(f"Passed: {passed_tests}")
-        print(f"Failed: {failed_tests}")
-        print(f"Success Rate: {success_rate:.1f}%")
-        print()
-        
-        if failed_tests > 0:
-            print("FAILED TESTS:")
-            for result in self.test_results:
-                if not result["success"]:
-                    print(f"❌ {result['test']}: {result['details']}")
-            print()
-        
-        print("DETAILED RESULTS:")
-        for result in self.test_results:
-            status = "✅" if result["success"] else "❌"
-            print(f"{status} {result['test']}")
-            if result["details"]:
-                print(f"   {result['details']}")
-        
-        return success_rate >= 80  # Consider 80%+ success rate as passing
+    tests_passed = 0
+    total_tests = 0
+    
+    # Test sequence
+    test_functions = [
+        login_admin,
+        test_avatar_upload_valid,
+        test_avatar_upload_empty,
+        test_avatar_upload_size_validation,
+        test_portfolio_upload,
+        test_portfolio_delete,
+        test_profile_me_hub
+    ]
+    
+    for test_func in test_functions:
+        total_tests += 1
+        if test_func():
+            tests_passed += 1
+        print()  # Add spacing between tests
+    
+    # Summary
+    print("=" * 80)
+    print(f"TESTING SUMMARY: {tests_passed}/{total_tests} tests passed")
+    success_rate = (tests_passed / total_tests) * 100 if total_tests > 0 else 0
+    print(f"Success Rate: {success_rate:.1f}%")
+    
+    if tests_passed == total_tests:
+        print("🎉 ALL TESTS PASSED - Avatar and Portfolio Upload endpoints are working correctly!")
+    else:
+        print(f"⚠️  {total_tests - tests_passed} test(s) failed - See details above")
+    
+    print("=" * 80)
+    
+    return tests_passed == total_tests
 
 if __name__ == "__main__":
-    tester = StylistHubTester()
-    success = tester.run_all_tests()
-    
-    if success:
-        print("\n🎉 STYLIST HUB ENDPOINTS TESTING COMPLETED SUCCESSFULLY!")
-    else:
-        print("\n⚠️  STYLIST HUB ENDPOINTS TESTING COMPLETED WITH ISSUES")
-        sys.exit(1)
+    success = run_all_tests()
+    sys.exit(0 if success else 1)

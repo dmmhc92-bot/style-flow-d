@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,6 +22,9 @@ import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
 import { useAuthStore } from '../../store/authStore';
 import api from '../../utils/api';
+
+// Maximum file size: 5MB
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 export default function ProfileEditScreen() {
   const router = useRouter();
@@ -38,6 +42,7 @@ export default function ProfileEditScreen() {
   const [profilePhoto, setProfilePhoto] = useState(user?.profile_photo || '');
   const [loading, setLoading] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
   
   // Load user data on mount and populate form when user changes
   useEffect(() => {
@@ -59,16 +64,45 @@ export default function ProfileEditScreen() {
     }
   }, [user]);
   
+  const validateImageSize = (base64String: string): boolean => {
+    // Approximate decoded size (base64 is ~33% larger than binary)
+    const estimatedSize = (base64String.length * 3) / 4;
+    return estimatedSize <= MAX_FILE_SIZE;
+  };
+  
+  const uploadAvatarToBackend = async (base64Image: string): Promise<string> => {
+    setUploadProgress('Uploading...');
+    
+    try {
+      const response = await api.post('/profiles/avatar', {
+        image_base64: base64Image
+      });
+      
+      if (response.data.success) {
+        setUploadProgress('');
+        return response.data.avatar_url;
+      } else {
+        throw new Error(response.data.message || 'Upload failed');
+      }
+    } catch (error: any) {
+      setUploadProgress('');
+      const errorMessage = error.response?.data?.detail || error.message || 'Upload failed';
+      throw new Error(errorMessage);
+    }
+  };
+  
   const pickImage = async (useCamera: boolean) => {
     try {
       setUploadingPhoto(true);
+      setUploadProgress('Preparing...');
       
       let result;
       if (useCamera) {
         const permission = await ImagePicker.requestCameraPermissionsAsync();
         if (!permission.granted) {
-          Alert.alert('Permission Required', 'Please allow camera access');
+          Alert.alert('Permission Required', 'Please allow camera access to take photos');
           setUploadingPhoto(false);
+          setUploadProgress('');
           return;
         }
         result = await ImagePicker.launchCameraAsync({
@@ -82,9 +116,10 @@ export default function ProfileEditScreen() {
         if (!permission.granted) {
           Alert.alert('Permission Required', 'Please allow photo library access');
           setUploadingPhoto(false);
+          setUploadProgress('');
           return;
         }
-        result = await ImagePicker.launchImagePickerAsync({
+        result = await ImagePicker.launchImageLibraryAsync({
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
           allowsEditing: true,
           aspect: [1, 1],
@@ -94,23 +129,68 @@ export default function ProfileEditScreen() {
       }
       
       if (!result.canceled && result.assets[0].base64) {
-        setProfilePhoto(`data:image/jpeg;base64,${result.assets[0].base64}`);
+        const base64Data = result.assets[0].base64;
+        
+        // Validate file size
+        if (!validateImageSize(base64Data)) {
+          Alert.alert(
+            'Image Too Large',
+            'Please select an image smaller than 5MB for optimal performance.',
+            [{ text: 'OK' }]
+          );
+          setUploadingPhoto(false);
+          setUploadProgress('');
+          return;
+        }
+        
+        // Validate file type (expo-image-picker handles this, but double-check)
+        const mimeType = result.assets[0].mimeType || '';
+        if (!['image/jpeg', 'image/jpg', 'image/png'].includes(mimeType.toLowerCase())) {
+          Alert.alert(
+            'Invalid Format',
+            'Only JPG and PNG images are allowed.',
+            [{ text: 'OK' }]
+          );
+          setUploadingPhoto(false);
+          setUploadProgress('');
+          return;
+        }
+        
+        // Upload to backend
+        const imageWithPrefix = `data:image/jpeg;base64,${base64Data}`;
+        const uploadedUrl = await uploadAvatarToBackend(imageWithPrefix);
+        setProfilePhoto(uploadedUrl);
+        
+        Alert.alert('Success', 'Profile photo updated!');
       }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to select image');
+    } catch (error: any) {
+      Alert.alert('Upload Failed', error.message || 'Failed to upload image');
     } finally {
       setUploadingPhoto(false);
+      setUploadProgress('');
     }
   };
   
   const handlePhotoAction = () => {
+    if (uploadingPhoto) return;
+    
     Alert.alert(
       'Profile Photo',
       'Choose an option',
       [
         { text: 'Take Photo', onPress: () => pickImage(true) },
         { text: 'Choose from Library', onPress: () => pickImage(false) },
-        profilePhoto ? { text: 'Remove Photo', onPress: () => setProfilePhoto(''), style: 'destructive' } : null,
+        profilePhoto ? { 
+          text: 'Remove Photo', 
+          onPress: async () => {
+            setProfilePhoto('');
+            // Update backend
+            try {
+              await updateProfile({ profile_photo: null });
+            } catch {}
+          }, 
+          style: 'destructive' 
+        } : null,
         { text: 'Cancel', style: 'cancel' },
       ].filter(Boolean) as any
     );
@@ -134,7 +214,7 @@ export default function ProfileEditScreen() {
         instagram_handle: instagram.trim() || undefined,
         tiktok_handle: tiktok.trim() || undefined,
         website_url: website.trim() || undefined,
-        profile_photo: profilePhoto || undefined,
+        // Profile photo is already saved via separate upload
       });
       
       Alert.alert('Success', 'Profile updated successfully', [
@@ -145,6 +225,12 @@ export default function ProfileEditScreen() {
     } finally {
       setLoading(false);
     }
+  };
+  
+  const isValidUrl = (urlString: string): boolean => {
+    if (!urlString) return true;
+    const pattern = /^(https?:\/\/)?([\da-z.-]+)\.([a-z.]{2,6})([/\w .-]*)*\/?$/;
+    return pattern.test(urlString);
   };
   
   return (
@@ -165,99 +251,153 @@ export default function ProfileEditScreen() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          <TouchableOpacity style={styles.photoSection} onPress={handlePhotoAction} disabled={uploadingPhoto}>
+          {/* Profile Photo Section */}
+          <TouchableOpacity 
+            style={styles.photoSection} 
+            onPress={handlePhotoAction} 
+            disabled={uploadingPhoto}
+            activeOpacity={0.7}
+          >
             <View style={styles.photoContainer}>
               {uploadingPhoto ? (
-                <ActivityIndicator size="large" color={Colors.accent} />
-              ) : profilePhoto ? (
-                <View style={styles.photoPreview}>
-                  <Text style={styles.photoText}>Photo Set</Text>
+                <View style={styles.uploadingOverlay}>
+                  <ActivityIndicator size="large" color={Colors.accent} />
+                  {uploadProgress && (
+                    <Text style={styles.uploadProgressText}>{uploadProgress}</Text>
+                  )}
                 </View>
+              ) : profilePhoto && !profilePhoto.includes('base64') ? (
+                <Image 
+                  source={{ uri: profilePhoto }} 
+                  style={styles.photoImage}
+                />
+              ) : profilePhoto ? (
+                <Image 
+                  source={{ uri: profilePhoto }} 
+                  style={styles.photoImage}
+                />
               ) : (
                 <View style={styles.photoPlaceholder}>
                   <Ionicons name="camera" size={40} color={Colors.accent} />
                   <Text style={styles.photoText}>Add Photo</Text>
                 </View>
               )}
+              
+              {/* Edit overlay badge */}
+              {!uploadingPhoto && (
+                <View style={styles.editBadge}>
+                  <Ionicons name="pencil" size={14} color={Colors.background} />
+                </View>
+              )}
             </View>
-            <Text style={styles.photoHint}>Tap to change photo</Text>
+            <Text style={styles.photoHint}>
+              {uploadingPhoto ? 'Uploading...' : 'Tap to change photo'}
+            </Text>
+            <Text style={styles.photoSubhint}>JPG or PNG • Max 5MB</Text>
           </TouchableOpacity>
           
-          <Input
-            label="Name *"
-            value={fullName}
-            onChangeText={setFullName}
-            placeholder="Your name"
-          />
+          {/* Form Fields */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Basic Info</Text>
+            
+            <Input
+              label="Name *"
+              value={fullName}
+              onChangeText={setFullName}
+              placeholder="Your name"
+              autoCapitalize="words"
+            />
+            
+            <Input
+              label="Business Name"
+              value={businessName}
+              onChangeText={setBusinessName}
+              placeholder="Your brand or business name"
+              autoCapitalize="words"
+            />
+            
+            <Input
+              label="Salon Name"
+              value={salonName}
+              onChangeText={setSalonName}
+              placeholder="Where you work"
+              autoCapitalize="words"
+            />
+            
+            <Input
+              label="City"
+              value={city}
+              onChangeText={setCity}
+              placeholder="Your city"
+              autoCapitalize="words"
+            />
+          </View>
           
-          <Input
-            label="Business Name"
-            value={businessName}
-            onChangeText={setBusinessName}
-            placeholder="Salon or business name"
-          />
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>About You</Text>
+            
+            <Input
+              label="Bio"
+              value={bio}
+              onChangeText={setBio}
+              placeholder="Tell clients about yourself and your style..."
+              multiline
+              numberOfLines={4}
+            />
+            
+            <Input
+              label="Specialties"
+              value={specialties}
+              onChangeText={setSpecialties}
+              placeholder="Hair color, balayage, cuts, extensions, etc."
+            />
+          </View>
           
-          <Input
-            label="Salon Name"
-            value={salonName}
-            onChangeText={setSalonName}
-            placeholder="Where you work"
-          />
-          
-          <Input
-            label="City"
-            value={city}
-            onChangeText={setCity}
-            placeholder="Your city"
-          />
-          
-          <Input
-            label="Bio"
-            value={bio}
-            onChangeText={setBio}
-            placeholder="Tell others about yourself"
-            multiline
-            numberOfLines={4}
-          />
-          
-          <Input
-            label="Specialties"
-            value={specialties}
-            onChangeText={setSpecialties}
-            placeholder="Hair color, cuts, extensions, etc."
-          />
-          
-          <Input
-            label="Instagram"
-            value={instagram}
-            onChangeText={setInstagram}
-            placeholder="@username"
-            autoCapitalize="none"
-          />
-          
-          <Input
-            label="TikTok"
-            value={tiktok}
-            onChangeText={setTiktok}
-            placeholder="@username"
-            autoCapitalize="none"
-          />
-          
-          <Input
-            label="Website"
-            value={website}
-            onChangeText={setWebsite}
-            placeholder="https://yoursite.com"
-            autoCapitalize="none"
-            keyboardType="url"
-          />
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Social Links</Text>
+            <Text style={styles.sectionSubtitle}>Connect with clients across platforms</Text>
+            
+            <Input
+              label="Instagram"
+              value={instagram}
+              onChangeText={setInstagram}
+              placeholder="@yourusername"
+              autoCapitalize="none"
+              autoCorrect={false}
+              icon={<Ionicons name="logo-instagram" size={20} color={Colors.textSecondary} />}
+            />
+            
+            <Input
+              label="TikTok"
+              value={tiktok}
+              onChangeText={setTiktok}
+              placeholder="@yourusername"
+              autoCapitalize="none"
+              autoCorrect={false}
+              icon={<Ionicons name="logo-tiktok" size={20} color={Colors.textSecondary} />}
+            />
+            
+            <Input
+              label="Website"
+              value={website}
+              onChangeText={setWebsite}
+              placeholder="https://yoursite.com"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+              icon={<Ionicons name="globe-outline" size={20} color={Colors.textSecondary} />}
+            />
+          </View>
           
           <Button
             title="Save Changes"
             onPress={handleSave}
             loading={loading}
+            disabled={loading || uploadingPhoto}
             style={styles.saveButton}
           />
+          
+          <View style={styles.bottomPadding} />
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -289,7 +429,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: Typography.h3,
-    fontWeight: Typography.bold,
+    fontWeight: Typography.bold as any,
     color: Colors.text,
   },
   scrollContent: {
@@ -304,22 +444,37 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: 60,
     overflow: 'hidden',
+    position: 'relative',
   },
-  photoPreview: {
+  photoImage: {
     width: '100%',
     height: '100%',
-    backgroundColor: Colors.accent + '30',
+    borderWidth: 3,
+    borderColor: Colors.accent,
+    borderRadius: 60,
+  },
+  uploadingOverlay: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: Colors.backgroundSecondary,
+    borderWidth: 3,
+    borderColor: Colors.accent,
+    borderRadius: 60,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: Colors.accent,
+  },
+  uploadProgressText: {
+    fontSize: Typography.caption,
+    color: Colors.accent,
+    marginTop: Spacing.xs,
   },
   photoPlaceholder: {
     width: '100%',
     height: '100%',
-    backgroundColor: Colors.backgroundCard,
+    backgroundColor: Colors.backgroundSecondary,
     borderWidth: 2,
     borderColor: Colors.border,
+    borderRadius: 60,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -328,13 +483,47 @@ const styles = StyleSheet.create({
     color: Colors.text,
     marginTop: Spacing.xs,
   },
+  editBadge: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: Colors.background,
+  },
   photoHint: {
-    fontSize: Typography.caption,
+    fontSize: Typography.bodySmall,
     color: Colors.textSecondary,
     marginTop: Spacing.sm,
   },
+  photoSubhint: {
+    fontSize: Typography.caption,
+    color: Colors.textLight,
+    marginTop: 2,
+  },
+  section: {
+    marginBottom: Spacing.lg,
+  },
+  sectionTitle: {
+    fontSize: Typography.body,
+    fontWeight: Typography.semibold as any,
+    color: Colors.text,
+    marginBottom: Spacing.sm,
+  },
+  sectionSubtitle: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    marginBottom: Spacing.md,
+  },
   saveButton: {
-    marginTop: Spacing.lg,
-    marginBottom: Spacing.xl,
+    marginTop: Spacing.md,
+  },
+  bottomPadding: {
+    height: Spacing.xxl,
   },
 });
