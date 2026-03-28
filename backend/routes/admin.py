@@ -933,6 +933,155 @@ async def get_moderation_status(current_user: dict = Depends(get_current_user)):
         "ban_reason": current_user.get("ban_reason"),
     }
 
+
+# ==================== GUARDIAN DASHBOARD - SYSTEM ACTIONS LOG ====================
+
+@router.get("/admin/guardian/actions")
+async def get_system_actions(
+    limit: int = 50,
+    action_type: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Guardian Dashboard: Get history of system-automated actions.
+    This shows RESULTS, not pending items requiring action.
+    """
+    await check_admin(current_user)
+    
+    query = {}
+    if action_type:
+        query["type"] = action_type
+    
+    actions = await db.system_actions.find(query).sort("created_at", -1).limit(limit).to_list(limit)
+    
+    result = []
+    for action in actions:
+        result.append({
+            "id": str(action["_id"]),
+            "type": action.get("type"),
+            "user_id": action.get("user_id"),
+            "user_name": action.get("user_name"),
+            "user_email": action.get("user_email"),
+            "strike_number": action.get("strike_number"),
+            "action": action.get("action"),
+            "action_label": action.get("action_label"),
+            "violation_type": action.get("violation_type"),
+            "duration_hours": action.get("duration_hours"),
+            "suspended_until": action.get("suspended_until").isoformat() if action.get("suspended_until") else None,
+            "message": action.get("message"),
+            "created_at": action.get("created_at").isoformat() if action.get("created_at") else None,
+            "requires_admin_action": action.get("requires_admin_action", False),
+            "status": action.get("status", "completed")
+        })
+    
+    return result
+
+@router.get("/admin/guardian/summary")
+async def get_guardian_summary(current_user: dict = Depends(get_current_user)):
+    """
+    Guardian Dashboard: Summary of system health and recent actions.
+    Shows what the system HAS DONE, not what needs to be done.
+    """
+    await check_admin(current_user)
+    
+    now = datetime.utcnow()
+    last_24h = now - timedelta(hours=24)
+    last_7d = now - timedelta(days=7)
+    
+    # Actions in last 24 hours
+    actions_24h = await db.system_actions.count_documents({
+        "created_at": {"$gte": last_24h}
+    })
+    
+    # Actions in last 7 days
+    actions_7d = await db.system_actions.count_documents({
+        "created_at": {"$gte": last_7d}
+    })
+    
+    # Currently suspended users (will auto-restore)
+    currently_suspended = await db.users.count_documents({
+        "moderation_status": "suspended",
+        "suspended_until": {"$gt": now}
+    })
+    
+    # Users restored in last 24h
+    restored_24h = await db.system_actions.count_documents({
+        "type": "system_auto_restore",
+        "created_at": {"$gte": last_24h}
+    })
+    
+    # Banned users (require appeal)
+    banned_users = await db.users.count_documents({
+        "moderation_status": "banned"
+    })
+    
+    # Pending appeals (only thing requiring attention)
+    pending_appeals = await db.appeals.count_documents({
+        "status": "pending"
+    })
+    
+    # Get last 5 system actions for quick view
+    recent_actions = await db.system_actions.find().sort("created_at", -1).limit(5).to_list(5)
+    
+    return {
+        "system_health": "operational",
+        "actions_last_24h": actions_24h,
+        "actions_last_7d": actions_7d,
+        "currently_suspended": currently_suspended,
+        "restored_last_24h": restored_24h,
+        "banned_users": banned_users,
+        "pending_appeals": pending_appeals,
+        "requires_attention": pending_appeals > 0,
+        "recent_actions": [{
+            "type": a.get("type"),
+            "user_name": a.get("user_name"),
+            "action_label": a.get("action_label"),
+            "message": a.get("message"),
+            "created_at": a.get("created_at").isoformat() if a.get("created_at") else None
+        } for a in recent_actions]
+    }
+
+@router.get("/admin/guardian/active-suspensions")
+async def get_active_suspensions(current_user: dict = Depends(get_current_user)):
+    """
+    Guardian Dashboard: List of currently active suspensions with countdown timers.
+    These will auto-restore - no action needed.
+    """
+    await check_admin(current_user)
+    
+    now = datetime.utcnow()
+    
+    suspended_users = await db.users.find({
+        "moderation_status": "suspended",
+        "suspended_until": {"$gt": now}
+    }).to_list(100)
+    
+    result = []
+    for user in suspended_users:
+        suspended_until = user.get("suspended_until")
+        time_remaining = suspended_until - now if suspended_until else timedelta(0)
+        
+        result.append({
+            "user_id": str(user["_id"]),
+            "user_name": user.get("full_name"),
+            "user_email": user.get("email"),
+            "strike_count": user.get("strike_count", 0),
+            "suspension_reason": user.get("suspension_reason"),
+            "suspended_at": user.get("suspended_at").isoformat() if user.get("suspended_at") else None,
+            "suspended_until": suspended_until.isoformat() if suspended_until else None,
+            "hours_remaining": round(time_remaining.total_seconds() / 3600, 1),
+            "auto_restore": True,
+            "status": "WILL_AUTO_RESTORE"
+        })
+    
+    return {
+        "count": len(result),
+        "note": "All suspensions will automatically expire. No action required.",
+        "suspensions": result
+    }
+
+
+
 # Export admin_manager for WebSocket use in main app
 def get_admin_manager():
     return admin_manager

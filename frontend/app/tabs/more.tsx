@@ -238,8 +238,15 @@ export default function MoreScreen() {
             <Text style={styles.sectionTitle}>Admin</Text>
             <Card style={[styles.menuCard, styles.adminCard]}>
               <MenuItem
-                icon="shield-half"
-                title="Moderation Dashboard"
+                icon="shield-checkmark"
+                title="Guardian Dashboard"
+                onPress={() => router.push('/admin/guardian')}
+                color={Colors.success}
+              />
+              <View style={styles.divider} />
+              <MenuItem
+                icon="hand-left"
+                title="Appeals & Reports"
                 onPress={() => router.push('/admin/moderation')}
                 color={Colors.accent}
               />

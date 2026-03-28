@@ -54,6 +54,7 @@ from routes.dashboard import router as dashboard_router
 from routes.users import router as users_router
 from routes.posts import router as posts_router
 from routes.admin import router as admin_router, get_admin_manager, get_grouped_queue_func
+from core.strike_engine import StrikeEngine, run_strike_engine_tasks
 from routes.subscription import router as subscription_router
 from routes.profiles import router as profiles_router
 
@@ -536,3 +537,39 @@ logger = logging.getLogger(__name__)
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+
+# ==================== STRIKE ENGINE BACKGROUND TASK ====================
+
+strike_engine_task = None
+
+async def strike_engine_loop():
+    """Background task that runs the Strike Engine periodically."""
+    while True:
+        try:
+            result = await run_strike_engine_tasks(db)
+            if result["restored_users"] or result["auto_actions"]:
+                logger.info(f"STRIKE ENGINE: Restored {len(result['restored_users'])} users, took {len(result['auto_actions'])} auto-actions")
+        except Exception as e:
+            logger.error(f"STRIKE ENGINE ERROR: {e}")
+        
+        # Run every 60 seconds
+        await asyncio.sleep(60)
+
+@app.on_event("startup")
+async def startup_strike_engine():
+    """Start the Strike Engine background task on app startup."""
+    global strike_engine_task
+    strike_engine_task = asyncio.create_task(strike_engine_loop())
+    logger.info("STRIKE ENGINE: Background task started")
+
+@app.on_event("shutdown")
+async def shutdown_strike_engine():
+    """Stop the Strike Engine background task on app shutdown."""
+    global strike_engine_task
+    if strike_engine_task:
+        strike_engine_task.cancel()
+        try:
+            await strike_engine_task
+        except asyncio.CancelledError:
+            pass
+    logger.info("STRIKE ENGINE: Background task stopped")
