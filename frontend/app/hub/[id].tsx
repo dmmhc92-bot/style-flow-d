@@ -215,9 +215,9 @@ export default function StylistHubProfileScreen() {
           <View style={styles.avatarStatsRow}>
             {/* Avatar */}
             <View style={styles.avatarContainer}>
-              {profile.profile_photo ? (
+              {(profile.profile_icon_url || profile.profile_photo) ? (
                 <Image 
-                  source={{ uri: profile.profile_photo }} 
+                  source={{ uri: profile.profile_icon_url || profile.profile_photo }} 
                   style={styles.avatar}
                 />
               ) : (
@@ -283,13 +283,27 @@ export default function StylistHubProfileScreen() {
                 <Text style={styles.infoText}>{profile.city}</Text>
               </View>
             )}
-            {profile.specialties && (
-              <View style={styles.infoItem}>
-                <Ionicons name="sparkles-outline" size={14} color={Colors.accent} />
-                <Text style={styles.specialtiesText}>{profile.specialties}</Text>
-              </View>
-            )}
           </View>
+          
+          {/* Specialties Chips */}
+          {profile.specialties && profile.specialties.length > 0 && (
+            <View style={styles.specialtiesContainer}>
+              {(Array.isArray(profile.specialties) ? profile.specialties : [profile.specialties]).map((specialty: string, index: number) => (
+                <View key={index} style={styles.specialtyChip}>
+                  <Ionicons name="sparkles" size={12} color={Colors.accent} />
+                  <Text style={styles.specialtyChipText}>{specialty}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+          
+          {/* Credentials display */}
+          {profile.credentials && (
+            <View style={styles.credentialsRow}>
+              <Ionicons name="ribbon" size={14} color={Colors.vip} />
+              <Text style={styles.credentialsText}>{profile.credentials}</Text>
+            </View>
+          )}
           
           {/* Social Links */}
           {(profile.instagram_handle || profile.tiktok_handle || profile.website_url) && (
@@ -575,6 +589,38 @@ const styles = StyleSheet.create({
   infoText: {
     fontSize: Typography.bodySmall,
     color: Colors.textSecondary,
+  },
+  specialtiesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.xs,
+    marginBottom: Spacing.sm,
+  },
+  specialtyChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.accent + '15',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  specialtyChipText: {
+    fontSize: Typography.caption,
+    color: Colors.accent,
+    fontWeight: Typography.medium as any,
+  },
+  credentialsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: Spacing.sm,
+    paddingVertical: 4,
+  },
+  credentialsText: {
+    fontSize: Typography.bodySmall,
+    color: Colors.vip,
+    fontWeight: Typography.medium as any,
   },
   specialtiesText: {
     fontSize: Typography.bodySmall,

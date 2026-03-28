@@ -397,6 +397,21 @@ export default function ProfileEditScreen() {
             style={styles.saveButton}
           />
           
+          {/* Portfolio Link */}
+          <TouchableOpacity 
+            style={styles.portfolioLink}
+            onPress={() => router.push('/profile/portfolio')}
+          >
+            <View style={styles.portfolioLinkContent}>
+              <Ionicons name="images-outline" size={24} color={Colors.accent} />
+              <View style={styles.portfolioLinkText}>
+                <Text style={styles.portfolioLinkTitle}>Manage Portfolio</Text>
+                <Text style={styles.portfolioLinkSubtitle}>Add and organize your work photos</Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.textSecondary} />
+          </TouchableOpacity>
+          
           <View style={styles.bottomPadding} />
         </ScrollView>
       </KeyboardAvoidingView>
@@ -522,6 +537,36 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     marginTop: Spacing.md,
+  },
+  portfolioLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.backgroundSecondary,
+    borderRadius: 12,
+    padding: Spacing.md,
+    marginTop: Spacing.lg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  portfolioLinkContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  portfolioLinkText: {
+    marginLeft: Spacing.md,
+    flex: 1,
+  },
+  portfolioLinkTitle: {
+    fontSize: Typography.body,
+    fontWeight: Typography.semibold as any,
+    color: Colors.text,
+  },
+  portfolioLinkSubtitle: {
+    fontSize: Typography.caption,
+    color: Colors.textSecondary,
+    marginTop: 2,
   },
   bottomPadding: {
     height: Spacing.xxl,
