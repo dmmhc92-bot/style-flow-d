@@ -26,6 +26,19 @@ export const storage = {
     await AsyncStorage.removeItem('userData');
   },
   
+  // Generic set/get methods
+  async set(key: string, value: string) {
+    await AsyncStorage.setItem(key, value);
+  },
+  
+  async get(key: string) {
+    return await AsyncStorage.getItem(key);
+  },
+  
+  async remove(key: string) {
+    await AsyncStorage.removeItem(key);
+  },
+  
   async clearAll() {
     await AsyncStorage.clear();
   },

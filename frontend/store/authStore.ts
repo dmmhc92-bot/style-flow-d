@@ -67,27 +67,34 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   login: async (email: string, password: string) => {
     try {
+      console.log('[Auth] Starting login API call...');
       const response = await api.post('/auth/login', { email, password });
+      console.log('[Auth] Login API response received');
       const { token, refresh_token, user } = response.data;
       
       // Set token in memory cache FIRST for immediate use
+      console.log('[Auth] Setting API token...');
       setApiToken(token);
       
       // Check if tester account
       const isTester = user.is_tester || false;
+      console.log('[Auth] isTester:', isTester);
       
       // Then persist to storage
+      console.log('[Auth] Persisting to storage...');
       await storage.setToken(token);
       if (refresh_token) {
         await storage.set('refreshToken', refresh_token);
       }
       await storage.setUserData(user);
+      console.log('[Auth] Storage complete');
       
       // Set user ID for offline storage
       if (user.id) {
         offlineStorage.setUserId(user.id);
       }
       
+      console.log('[Auth] Setting state...');
       set({ 
         token, 
         refreshToken: refresh_token,
@@ -95,16 +102,25 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         isAuthenticated: true,
         isTester
       });
+      console.log('[Auth] State set, isAuthenticated: true');
       
       // Initialize RevenueCat with user ID (skip subscription check for testers)
-      const subscriptionStore = useSubscriptionStore.getState();
-      if (!isTester) {
-        await subscriptionStore.identifyUser(user.id);
-      } else {
-        // Testers get automatic premium status
-        set({ user: { ...user, subscription_status: 'active' } });
+      // Wrap in try-catch to prevent RevenueCat errors from blocking login
+      try {
+        const subscriptionStore = useSubscriptionStore.getState();
+        if (!isTester) {
+          await subscriptionStore.identifyUser(user.id);
+        } else {
+          // Testers get automatic premium status
+          set({ user: { ...user, subscription_status: 'active' } });
+        }
+      } catch (rcError) {
+        console.warn('[Auth] RevenueCat initialization error (non-blocking):', rcError);
+        // Don't throw - let login continue even if RevenueCat fails
       }
+      console.log('[Auth] Login complete');
     } catch (error: any) {
+      console.error('[Auth] Login error:', error);
       throw new Error(error.response?.data?.detail || 'Login failed');
     }
   },

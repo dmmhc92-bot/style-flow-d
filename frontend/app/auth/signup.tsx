@@ -8,12 +8,12 @@ import {
   Platform,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Input from '../../components/Input';
-import Button from '../../components/Button';
 import Colors from '../../constants/Colors';
 import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
@@ -65,11 +65,12 @@ export default function SignupScreen() {
     setLoading(true);
     try {
       await signup(email, password, fullName, businessName || undefined);
+      // Give time for the state to update and token to be cached
+      await new Promise(resolve => setTimeout(resolve, 200));
       router.replace('/tabs');
     } catch (error: any) {
-      Alert.alert('Signup Failed', error.message);
-    } finally {
       setLoading(false);
+      Alert.alert('Signup Failed', error.message);
     }
   };
   
@@ -144,12 +145,18 @@ export default function SignupScreen() {
               icon={<Ionicons name="lock-closed-outline" size={20} color={Colors.textSecondary} />}
             />
             
-            <Button
-              title="Create Account"
+            <TouchableOpacity
+              style={[styles.signupButton, loading && styles.signupButtonDisabled]}
               onPress={handleSignup}
-              loading={loading}
-              style={styles.signupButton}
-            />
+              disabled={loading}
+              activeOpacity={0.8}
+            >
+              {loading ? (
+                <ActivityIndicator color={Colors.buttonText || '#FFFFFF'} />
+              ) : (
+                <Text style={styles.signupButtonText}>Create Account</Text>
+              )}
+            </TouchableOpacity>
             
             <View style={styles.loginContainer}>
               <Text style={styles.loginText}>Already have an account? </Text>
@@ -200,6 +207,20 @@ const styles = StyleSheet.create({
   signupButton: {
     marginTop: Spacing.md,
     marginBottom: Spacing.lg,
+    backgroundColor: Colors.accent,
+    paddingVertical: Spacing.md,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 50,
+  },
+  signupButtonDisabled: {
+    opacity: 0.7,
+  },
+  signupButtonText: {
+    color: Colors.buttonText || '#FFFFFF',
+    fontSize: Typography.body,
+    fontWeight: Typography.semibold,
   },
   loginContainer: {
     flexDirection: 'row',

@@ -1,5 +1,5 @@
 import React, { useEffect, useCallback } from 'react';
-import { Stack, useRouter, useRootNavigationState } from 'expo-router';
+import { Stack, useRouter, useRootNavigationState, useSegments } from 'expo-router';
 import * as Linking from 'expo-linking';
 import { useAuthStore } from '../store/authStore';
 import { NetworkProvider } from '../contexts/NetworkContext';
@@ -7,8 +7,9 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import { syncService } from '../utils/syncService';
 
 export default function RootLayout() {
-  const { isLoading, loadUser } = useAuthStore();
+  const { isLoading, isAuthenticated, loadUser } = useAuthStore();
   const router = useRouter();
+  const segments = useSegments();
   const navigationState = useRootNavigationState();
 
   useEffect(() => {
@@ -16,6 +17,22 @@ export default function RootLayout() {
     // Initialize sync service for offline-first functionality
     syncService.initialize();
   }, []);
+
+  // Handle auth state changes and redirect appropriately
+  useEffect(() => {
+    if (isLoading || !navigationState?.key) return;
+
+    const inAuthGroup = segments[0] === 'auth';
+    const inTabsGroup = segments[0] === 'tabs';
+
+    if (isAuthenticated && inAuthGroup) {
+      // User is authenticated but in auth screens - redirect to tabs
+      router.replace('/tabs');
+    } else if (!isAuthenticated && inTabsGroup) {
+      // User is not authenticated but in tabs - redirect to login
+      router.replace('/auth/login');
+    }
+  }, [isAuthenticated, segments, isLoading, navigationState?.key]);
 
   // Handle deep links for password reset - only when navigation is ready
   const handleDeepLink = useCallback((url: string) => {

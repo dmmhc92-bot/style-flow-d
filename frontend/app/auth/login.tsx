@@ -8,12 +8,12 @@ import {
   Platform,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Input from '../../components/Input';
-import Button from '../../components/Button';
 import Colors from '../../constants/Colors';
 import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
@@ -51,12 +51,18 @@ export default function LoginScreen() {
     
     setLoading(true);
     try {
+      console.log('Starting login...');
       await login(email, password);
+      console.log('Login successful, navigating to tabs...');
+      // Give time for the state to update and token to be cached
+      await new Promise(resolve => setTimeout(resolve, 200));
+      console.log('Calling router.replace...');
       router.replace('/tabs');
+      console.log('Navigation called');
     } catch (error: any) {
-      Alert.alert('Login Failed', error.message);
-    } finally {
+      console.log('Login error:', error.message);
       setLoading(false);
+      Alert.alert('Login Failed', error.message);
     }
   };
   
@@ -105,12 +111,21 @@ export default function LoginScreen() {
               <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
             </TouchableOpacity>
             
-            <Button
-              title="Sign In"
+            <TouchableOpacity
+              style={[styles.loginButton, loading && styles.loginButtonDisabled]}
               onPress={handleLogin}
-              loading={loading}
-              style={styles.loginButton}
-            />
+              disabled={loading}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Sign In"
+              testID="signInButton"
+            >
+              {loading ? (
+                <ActivityIndicator color={Colors.buttonText} />
+              ) : (
+                <Text style={styles.loginButtonText}>Sign In</Text>
+              )}
+            </TouchableOpacity>
             
             <View style={styles.signupContainer}>
               <Text style={styles.signupText}>Don't have an account? </Text>
@@ -169,6 +184,20 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     marginBottom: Spacing.lg,
+    backgroundColor: Colors.accent,
+    paddingVertical: Spacing.md,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 50,
+  },
+  loginButtonDisabled: {
+    opacity: 0.7,
+  },
+  loginButtonText: {
+    color: Colors.buttonText || '#FFFFFF',
+    fontSize: Typography.body,
+    fontWeight: Typography.semibold,
   },
   signupContainer: {
     flexDirection: 'row',
