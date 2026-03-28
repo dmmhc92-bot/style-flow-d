@@ -40,7 +40,12 @@
         "NSPhotoLibraryAddUsageDescription": "Save your work to device gallery",
         "NSFaceIDUsageDescription": "Secure login with Face ID",
         "ITSAppUsesNonExemptEncryption": false,
-        "UIBackgroundModes": ["remote-notification"]
+        "UIBackgroundModes": ["remote-notification"],
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": ["styleflow"]
+          }
+        ]
       },
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
@@ -49,7 +54,8 @@
             "NSPrivacyAccessedAPITypeReasons": ["CA92.1"]
           }
         ]
-      }
+      },
+      "appStoreUrl": "https://apps.apple.com/app/styleflow/id6761026979"
     },
     "android": {
       "adaptiveIcon": {

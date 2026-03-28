@@ -59,9 +59,10 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "",
-        "ascAppId": "",
-        "appleTeamId": "NTZB3ZFKXK"
+        "appleId": "DMMHC92@gmail.com",
+        "ascAppId": "6761026979",
+        "appleTeamId": "NTZB3ZFKXK",
+        "sku": "styleflow001"
       },
       "android": {
         "serviceAccountKeyPath": "",
