@@ -6,6 +6,7 @@ import Colors from '../constants/Colors';
 import Spacing from '../constants/Spacing';
 import Typography from '../constants/Typography';
 import { useSubscriptionStore, usePremiumFeature } from '../store/subscriptionStore';
+import { useAuthStore } from '../store/authStore';
 
 interface PremiumGateProps {
   feature: string;
@@ -16,6 +17,8 @@ interface PremiumGateProps {
 
 /**
  * PremiumGate - Wraps content that requires premium subscription
+ * 
+ * IMPORTANT: isTester accounts (App Store Review) automatically bypass all gates
  * 
  * Usage:
  * <PremiumGate feature="unlimited_clients">
@@ -30,10 +33,14 @@ export const PremiumGate: React.FC<PremiumGateProps> = ({
 }) => {
   const router = useRouter();
   const { hasAccess, requiresPremium, isPremium } = usePremiumFeature(feature);
+  const { isTester, user } = useAuthStore();
   const [showModal, setShowModal] = React.useState(false);
 
-  // If feature doesn't require premium or user has premium, show content
-  if (hasAccess) {
+  // CRITICAL: Testers ALWAYS get access (App Store Review bypass)
+  const isTesterAccount = isTester || user?.is_tester;
+  
+  // If feature doesn't require premium, user has premium, OR user is a tester - show content
+  if (hasAccess || isTesterAccount) {
     return <>{children}</>;
   }
 
@@ -110,6 +117,7 @@ export const PremiumBadge: React.FC<{ style?: any }> = ({ style }) => {
 
 /**
  * PremiumButton - Button that navigates to subscription screen
+ * Hidden for testers since they already have full access
  */
 export const PremiumButton: React.FC<{ 
   title?: string;
@@ -118,8 +126,10 @@ export const PremiumButton: React.FC<{
 }> = ({ title = 'Upgrade to Pro', style, onPress }) => {
   const router = useRouter();
   const { isPremium } = useSubscriptionStore();
+  const { isTester, user } = useAuthStore();
 
-  if (isPremium) return null;
+  // Hide for premium users AND testers
+  if (isPremium || isTester || user?.is_tester) return null;
 
   const handlePress = () => {
     if (onPress) {
@@ -139,6 +149,7 @@ export const PremiumButton: React.FC<{
 
 /**
  * withPremiumGate - HOC for wrapping entire screens
+ * IMPORTANT: Testers (App Store Review) automatically bypass all gates
  */
 export function withPremiumGate<P extends object>(
   WrappedComponent: React.ComponentType<P>,
@@ -146,9 +157,13 @@ export function withPremiumGate<P extends object>(
 ) {
   return function PremiumGatedComponent(props: P) {
     const { hasAccess } = usePremiumFeature(feature);
+    const { isTester, user } = useAuthStore();
     const router = useRouter();
 
-    if (!hasAccess) {
+    // CRITICAL: Testers ALWAYS get access (App Store Review bypass)
+    const isTesterAccount = isTester || user?.is_tester;
+    
+    if (!hasAccess && !isTesterAccount) {
       return (
         <View style={styles.fullScreenLock}>
           <View style={styles.lockContent}>

@@ -1,3 +1,17 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# AUTH.PY - SEALED AUTHORITY FOR AUTHENTICATION & EMAIL
+# ═══════════════════════════════════════════════════════════════════════════════
+# FINAL_SEAL_AUTH: 2025-03-28
+# 
+# This file is the SOLE authority for:
+#   - JWT Token Generation & Refresh
+#   - Password Reset via Resend SDK
+#   - isTester App Store Bypass Logic
+#   - User Authentication & Session Management
+#
+# DO NOT duplicate auth/email logic elsewhere. All auth flows route through here.
+# ═══════════════════════════════════════════════════════════════════════════════
+
 from fastapi import APIRouter, Depends, HTTPException, Header
 from datetime import datetime, timedelta
 from typing import Optional
