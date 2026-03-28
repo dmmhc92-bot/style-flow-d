@@ -4,6 +4,7 @@ import * as Linking from 'expo-linking';
 import { useAuthStore } from '../store/authStore';
 import { NetworkProvider } from '../contexts/NetworkContext';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { syncService } from '../utils/syncService';
 
 export default function RootLayout() {
   const { isLoading, loadUser } = useAuthStore();
@@ -12,6 +13,8 @@ export default function RootLayout() {
 
   useEffect(() => {
     loadUser();
+    // Initialize sync service for offline-first functionality
+    syncService.initialize();
   }, []);
 
   // Handle deep links for password reset - only when navigation is ready

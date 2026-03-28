@@ -18,10 +18,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import Button from '../../components/Button';
+import { SyncStatusBar } from '../../components/SyncStatusBar';
 import Colors from '../../constants/Colors';
 import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
 import api from '../../utils/api';
+import { useAuthStore } from '../../store/authStore';
+import { useSyncStatus } from '../../utils/syncService';
+import {
+  saveLookbookItem,
+  getLocalLookbookItems,
+  deleteLookbookItem as deleteLocalItem,
+  LookbookItem,
+} from '../../utils/localVault';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_GAP = 4;
@@ -36,10 +45,13 @@ interface PortfolioItem {
   image: string;
   caption?: string;
   created_at?: string;
+  is_local?: boolean;  // Flag for local-only items
 }
 
 export default function PortfolioScreen() {
   const router = useRouter();
+  const { user } = useAuthStore();
+  const { isOnline } = useSyncStatus();
   const [portfolio, setPortfolio] = useState<PortfolioItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -60,10 +72,47 @@ export default function PortfolioScreen() {
   
   const loadPortfolio = async () => {
     try {
-      const response = await api.get('/profiles/me/hub');
-      setPortfolio(response.data.portfolio || []);
+      // First, load from local cache for instant display
+      if (user?.id) {
+        const localItems = await getLocalLookbookItems(user.id);
+        const localPortfolio: PortfolioItem[] = localItems
+          .filter(item => !item.is_synced)  // Only show unsynced local items
+          .map(item => ({
+            id: item.id,
+            image: item.image_data,
+            caption: item.caption,
+            created_at: new Date(item.created_at).toISOString(),
+            is_local: true,
+          }));
+        
+        // Try to load from server if online
+        if (isOnline) {
+          const response = await api.get('/profiles/me/hub');
+          const serverItems = (response.data.portfolio || []).map((item: any) => ({
+            ...item,
+            is_local: false,
+          }));
+          // Merge: local unsynced items first, then server items
+          setPortfolio([...localPortfolio, ...serverItems]);
+        } else {
+          // Offline: show only local items
+          setPortfolio(localPortfolio);
+        }
+      }
     } catch (error) {
       console.error('Failed to load portfolio:', error);
+      // If API fails, try to show local items
+      if (user?.id) {
+        const localItems = await getLocalLookbookItems(user.id);
+        const localPortfolio = localItems.map(item => ({
+          id: item.id,
+          image: item.image_data,
+          caption: item.caption,
+          created_at: new Date(item.created_at).toISOString(),
+          is_local: true,
+        }));
+        setPortfolio(localPortfolio);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -73,7 +122,7 @@ export default function PortfolioScreen() {
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     loadPortfolio();
-  }, []);
+  }, [isOnline, user?.id]);
   
   const validateImageSize = (base64String: string): boolean => {
     const estimatedSize = (base64String.length * 3) / 4;
@@ -156,37 +205,56 @@ export default function PortfolioScreen() {
   };
   
   const uploadImage = async () => {
-    if (!selectedImage) return;
+    if (!selectedImage || !user?.id) return;
     
     setUploading(true);
-    setUploadProgress('Uploading...');
     
-    try {
-      const response = await api.post('/profiles/portfolio', {
-        image_base64: selectedImage,
-        caption: caption.trim() || null,
-      });
-      
-      if (response.data.success) {
-        // Add to local state
-        setPortfolio(prev => [{
-          id: response.data.portfolio_id,
-          image: response.data.image_url,
-          caption: caption.trim(),
-          created_at: new Date().toISOString(),
-        }, ...prev]);
+    // OFFLINE-FIRST: Always save locally first
+    setUploadProgress('Saving locally...');
+    const localId = await saveLookbookItem(user.id, selectedImage, caption.trim());
+    
+    // Add to local state immediately for instant feedback
+    setPortfolio(prev => [{
+      id: localId,
+      image: selectedImage,
+      caption: caption.trim(),
+      created_at: new Date().toISOString(),
+      is_local: true,
+    }, ...prev]);
+    
+    // If online, try to sync immediately
+    if (isOnline) {
+      setUploadProgress('Syncing to cloud...');
+      try {
+        const response = await api.post('/profiles/portfolio', {
+          image_base64: selectedImage,
+          caption: caption.trim() || null,
+        });
         
-        setShowUploadModal(false);
-        setSelectedImage(null);
-        setCaption('');
-        Alert.alert('Success', 'Photo added to your portfolio!');
+        if (response.data.success) {
+          // Update local item with server ID
+          setPortfolio(prev => prev.map(item => 
+            item.id === localId 
+              ? { ...item, id: response.data.portfolio_id, image: response.data.image_url, is_local: false }
+              : item
+          ));
+        }
+      } catch (error: any) {
+        // Failed to sync - stays local, will retry later
+        console.log('Sync failed, saved locally:', error.message);
       }
-    } catch (error: any) {
-      Alert.alert('Upload Failed', error.response?.data?.detail || 'Failed to upload image');
-    } finally {
-      setUploading(false);
-      setUploadProgress('');
     }
+    
+    setShowUploadModal(false);
+    setSelectedImage(null);
+    setCaption('');
+    setUploading(false);
+    setUploadProgress('');
+    
+    Alert.alert(
+      'Success', 
+      isOnline ? 'Photo added to your portfolio!' : 'Photo saved! Will sync when online.'
+    );
   };
   
   const deleteItem = async (item: PortfolioItem) => {
@@ -224,6 +292,12 @@ export default function PortfolioScreen() {
       activeOpacity={0.8}
     >
       <Image source={{ uri: item.image }} style={styles.gridImage} />
+      {/* Show pending sync indicator for local items */}
+      {item.is_local && (
+        <View style={styles.syncPendingBadge}>
+          <Ionicons name="cloud-upload-outline" size={12} color={Colors.background} />
+        </View>
+      )}
     </TouchableOpacity>
   );
   
@@ -239,6 +313,9 @@ export default function PortfolioScreen() {
   
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Sync Status Bar */}
+      <SyncStatusBar />
+      
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
@@ -267,7 +344,9 @@ export default function PortfolioScreen() {
             <Text style={styles.statLabel}>Photos</Text>
           </View>
           <Text style={styles.statDivider}>•</Text>
-          <Text style={styles.statHint}>Showcase your best work</Text>
+          <Text style={styles.statHint}>
+            {!isOnline ? 'Offline mode • Edits saved locally' : 'Showcase your best work'}
+          </Text>
         </View>
         
         {/* Portfolio Grid */}
@@ -486,6 +565,7 @@ const styles = StyleSheet.create({
     marginBottom: GRID_GAP,
     borderRadius: 8,
     overflow: 'hidden',
+    position: 'relative',
   },
   gridItemMargin: {
     marginRight: GRID_GAP,
@@ -494,6 +574,14 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     backgroundColor: Colors.backgroundSecondary,
+  },
+  syncPendingBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: Colors.accent,
+    borderRadius: 10,
+    padding: 4,
   },
   emptyState: {
     alignItems: 'center',
