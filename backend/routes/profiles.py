@@ -449,18 +449,26 @@ async def discover_stylists(
         
         credentials = user.get("credentials", {})
         
+        # Ensure specialties is a list
+        specialties_raw = user.get("specialties", [])
+        if isinstance(specialties_raw, str):
+            specialties_list = [s.strip() for s in specialties_raw.split(",") if s.strip()]
+        else:
+            specialties_list = specialties_raw or []
+        
         results.append({
             "id": user_id,
             "full_name": user.get("full_name"),
-            "business_name": user.get("business_name"),
-            "bio": user.get("bio"),
+            "profile_icon_url": user.get("profile_photo") or user.get("profile_icon_url"),
+            "profile_photo": user.get("profile_photo"),  # Legacy support
+            "bio": user.get("bio", "Professional Hairstylist"),
             "city": user.get("city"),
-            "specialties": user.get("specialties"),
-            "profile_photo": user.get("profile_photo"),
-            "followers_count": followers_count,
-            "portfolio_count": portfolio_count,
+            "specialties": specialties_list,
+            "business_name": user.get("business_name"),
             "is_verified": credentials.get("is_verified", False),
-            "is_featured": user.get("is_tester", False) or credentials.get("is_verified", False)
+            "is_featured": user.get("is_tester", False) or credentials.get("is_verified", False),
+            "followers_count": followers_count,
+            "portfolio_count": portfolio_count
         })
     
     return results
@@ -530,20 +538,44 @@ async def get_stylist_profile(
     
     credentials = user.get("credentials", {})
     
+    # Build credentials string for display
+    creds_parts = []
+    if credentials.get("license_state") and credentials.get("license_number"):
+        creds_parts.append(f"{credentials.get('license_state')} License #{credentials.get('license_number')}")
+    if credentials.get("certifications"):
+        creds_parts.extend(credentials.get("certifications", []))
+    credentials_display = " | ".join(creds_parts) if creds_parts else None
+    
+    # Ensure specialties is a list
+    specialties_raw = user.get("specialties", [])
+    if isinstance(specialties_raw, str):
+        specialties_list = [s.strip() for s in specialties_raw.split(",") if s.strip()]
+    else:
+        specialties_list = specialties_raw or []
+    
     return {
         "id": str(user["_id"]),
         "full_name": user.get("full_name"),
+        "email": user.get("email"),
+        "profile_icon_url": user.get("profile_photo") or user.get("profile_icon_url"),
+        "profile_photo": user.get("profile_photo"),  # Legacy support
+        
+        # Stylist Hub features
+        "bio": user.get("bio", "Professional Hairstylist"),
+        "specialties": specialties_list,
+        "credentials": credentials_display,
+        "is_verified": credentials.get("is_verified", False),
+        
+        # Location & Business
         "business_name": user.get("business_name"),
-        "bio": user.get("bio"),
         "salon_name": user.get("salon_name"),
         "city": user.get("city"),
-        "specialties": user.get("specialties"),
-        "profile_photo": user.get("profile_photo"),
         
         # Social links
         "instagram_handle": user.get("instagram_handle"),
         "tiktok_handle": user.get("tiktok_handle"),
         "website_url": user.get("website_url"),
+        "portfolio_images": user.get("portfolio_images", []),
         
         # Stats
         "followers_count": followers_count,
@@ -555,8 +587,11 @@ async def get_stylist_profile(
         "is_following": is_following,
         "is_own_profile": current_user_id == user_id,
         
-        # Credentials
-        "is_verified": credentials.get("is_verified", False),
+        # System Controls
+        "is_tester": user.get("is_tester", False),
+        "subscription_active": user.get("subscription_status") == "active" or user.get("is_tester", False),
+        
+        # Credentials detail (for backward compatibility)
         "license_state": credentials.get("license_state"),
         "certifications": credentials.get("certifications", []),
         
@@ -591,20 +626,44 @@ async def get_my_hub_profile(current_user: dict = Depends(get_current_user)):
     
     credentials = current_user.get("credentials", {})
     
+    # Build credentials string for display
+    creds_parts = []
+    if credentials.get("license_state") and credentials.get("license_number"):
+        creds_parts.append(f"{credentials.get('license_state')} License #{credentials.get('license_number')}")
+    if credentials.get("certifications"):
+        creds_parts.extend(credentials.get("certifications", []))
+    credentials_display = " | ".join(creds_parts) if creds_parts else None
+    
+    # Ensure specialties is a list
+    specialties_raw = current_user.get("specialties", [])
+    if isinstance(specialties_raw, str):
+        specialties_list = [s.strip() for s in specialties_raw.split(",") if s.strip()]
+    else:
+        specialties_list = specialties_raw or []
+    
     return {
         "id": user_id,
         "full_name": current_user.get("full_name"),
+        "email": current_user.get("email"),
+        "profile_icon_url": current_user.get("profile_photo") or current_user.get("profile_icon_url"),
+        "profile_photo": current_user.get("profile_photo"),  # Legacy support
+        
+        # Stylist Hub features
+        "bio": current_user.get("bio", "Professional Hairstylist"),
+        "specialties": specialties_list,
+        "credentials": credentials_display,
+        "is_verified": credentials.get("is_verified", False),
+        
+        # Location & Business
         "business_name": current_user.get("business_name"),
-        "bio": current_user.get("bio"),
         "salon_name": current_user.get("salon_name"),
         "city": current_user.get("city"),
-        "specialties": current_user.get("specialties"),
-        "profile_photo": current_user.get("profile_photo"),
         
         # Social links
         "instagram_handle": current_user.get("instagram_handle"),
         "tiktok_handle": current_user.get("tiktok_handle"),
         "website_url": current_user.get("website_url"),
+        "portfolio_images": current_user.get("portfolio_images", []),
         
         # Stats
         "followers_count": followers_count,
@@ -612,8 +671,11 @@ async def get_my_hub_profile(current_user: dict = Depends(get_current_user)):
         "posts_count": posts_count,
         "portfolio_count": len(portfolio_items),
         
-        # Credentials
-        "is_verified": credentials.get("is_verified", False),
+        # System Controls
+        "is_tester": current_user.get("is_tester", False),
+        "subscription_active": current_user.get("subscription_status") == "active" or current_user.get("is_tester", False),
+        
+        # Credentials detail (for backward compatibility)
         "license_state": credentials.get("license_state"),
         "certifications": credentials.get("certifications", []),
         

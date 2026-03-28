@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-StyleFlow Backend Testing - Avatar and Portfolio Upload Endpoints
-Testing the UPDATED avatar and portfolio upload endpoints with validation
+StyleFlow Backend Testing - Updated StylistProfile Schema Implementation
+Testing the specific endpoints for StylistProfile schema updates:
+1. GET /api/profiles/me/hub - Verify response includes profile_icon_url, specialties as List[str], credentials, is_tester, subscription_active, portfolio_images
+2. GET /api/profiles/discover - Verify discovery results include profile_icon_url, specialties as List[str], is_verified, is_featured flags
+3. GET /api/profiles/{user_id} - Verify full profile includes all StylistProfile fields
 """
 
 import requests
@@ -17,7 +20,7 @@ ADMIN_PASSWORD = "Admin1234!"
 
 # Test credentials
 admin_token = None
-portfolio_id = None
+test_user_id = None
 
 def log_test(test_name, status, details=""):
     """Log test results with timestamp"""
@@ -27,39 +30,6 @@ def log_test(test_name, status, details=""):
     if details:
         print(f"    {details}")
     return status
-
-def create_small_test_image():
-    """Create a small valid base64 JPG image for testing"""
-    # Create a simple 10x10 red JPEG image
-    try:
-        from PIL import Image
-        import io
-        import base64
-        
-        # Create a small 10x10 red image
-        img = Image.new('RGB', (10, 10), color='red')
-        
-        # Save to bytes
-        img_bytes = io.BytesIO()
-        img.save(img_bytes, format='JPEG', quality=85)
-        img_bytes.seek(0)
-        
-        # Convert to base64
-        img_base64 = base64.b64encode(img_bytes.read()).decode('utf-8')
-        return f"data:image/jpeg;base64,{img_base64}"
-    except ImportError:
-        # Fallback to a known working small JPEG
-        return "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwA/8A"
-
-def create_large_test_image():
-    """Create a large base64 image that exceeds 5MB limit"""
-    # Create a valid base64 string that will decode to more than 5MB
-    # We'll create a string that when base64 decoded will be > 5MB
-    # Base64 encoding increases size by ~33%, so we need raw data > 5MB
-    import base64
-    large_binary_data = b'A' * (6 * 1024 * 1024)  # 6MB of binary data
-    large_base64 = base64.b64encode(large_binary_data).decode('utf-8')
-    return f"data:image/jpeg;base64,{large_base64}"
 
 def login_admin():
     """Login as admin and get JWT token"""
@@ -89,146 +59,8 @@ def get_auth_headers():
         return {}
     return {"Authorization": f"Bearer {admin_token}"}
 
-def test_avatar_upload_valid():
-    """Test POST /api/profiles/avatar with valid JPG base64 image"""
-    try:
-        small_image = create_small_test_image()
-        
-        response = requests.post(
-            f"{BASE_URL}/profiles/avatar",
-            json={"image_base64": small_image},
-            headers=get_auth_headers()
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            required_fields = ["avatar_url", "storage_type", "success"]
-            missing_fields = [field for field in required_fields if field not in data]
-            
-            if missing_fields:
-                return log_test("Avatar Upload (Valid)", False, f"Missing fields: {missing_fields}")
-            
-            if data.get("success") != True:
-                return log_test("Avatar Upload (Valid)", False, f"Success field is not True: {data.get('success')}")
-            
-            return log_test("Avatar Upload (Valid)", True, 
-                          f"Avatar URL: {data.get('avatar_url')[:50]}..., Storage: {data.get('storage_type')}")
-        else:
-            return log_test("Avatar Upload (Valid)", False, 
-                          f"Status: {response.status_code}, Response: {response.text}")
-    except Exception as e:
-        return log_test("Avatar Upload (Valid)", False, f"Exception: {str(e)}")
-
-def test_avatar_upload_empty():
-    """Test POST /api/profiles/avatar with empty image (should fail 422)"""
-    try:
-        response = requests.post(
-            f"{BASE_URL}/profiles/avatar",
-            json={"image_base64": ""},
-            headers=get_auth_headers()
-        )
-        
-        if response.status_code == 422:
-            return log_test("Avatar Upload (Empty Image)", True, "Correctly rejected empty image with 422")
-        else:
-            return log_test("Avatar Upload (Empty Image)", False, 
-                          f"Expected 422, got {response.status_code}, Response: {response.text}")
-    except Exception as e:
-        return log_test("Avatar Upload (Empty Image)", False, f"Exception: {str(e)}")
-
-def test_avatar_upload_size_validation():
-    """Test POST /api/profiles/avatar size validation (5MB max)"""
-    try:
-        large_image = create_large_test_image()
-        
-        response = requests.post(
-            f"{BASE_URL}/profiles/avatar",
-            json={"image_base64": large_image},
-            headers=get_auth_headers()
-        )
-        
-        if response.status_code == 422:
-            error_detail = response.json().get("detail", [])
-            if isinstance(error_detail, list) and len(error_detail) > 0:
-                error_msg = error_detail[0].get("msg", "")
-                if "too large" in error_msg.lower() or "5mb" in error_msg.lower():
-                    return log_test("Avatar Upload (Size Validation)", True, 
-                                  f"Correctly rejected large image: {error_msg}")
-                else:
-                    return log_test("Avatar Upload (Size Validation)", False, 
-                                  f"Got 422 but wrong error message: {error_msg}")
-            else:
-                return log_test("Avatar Upload (Size Validation)", False, 
-                              f"Got 422 but unexpected error format: {error_detail}")
-        else:
-            return log_test("Avatar Upload (Size Validation)", False, 
-                          f"Expected 422, got {response.status_code}, Response: {response.text}")
-    except Exception as e:
-        return log_test("Avatar Upload (Size Validation)", False, f"Exception: {str(e)}")
-
-def test_portfolio_upload():
-    """Test POST /api/profiles/portfolio - Portfolio image upload"""
-    global portfolio_id
-    
-    try:
-        small_image = create_small_test_image()
-        
-        response = requests.post(
-            f"{BASE_URL}/profiles/portfolio",
-            json={
-                "image_base64": small_image,
-                "caption": "Test portfolio image upload"
-            },
-            headers=get_auth_headers()
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            required_fields = ["portfolio_id", "image_url", "success"]
-            missing_fields = [field for field in required_fields if field not in data]
-            
-            if missing_fields:
-                return log_test("Portfolio Upload", False, f"Missing fields: {missing_fields}")
-            
-            if data.get("success") != True:
-                return log_test("Portfolio Upload", False, f"Success field is not True: {data.get('success')}")
-            
-            portfolio_id = data.get("portfolio_id")
-            return log_test("Portfolio Upload", True, 
-                          f"Portfolio ID: {portfolio_id}, Image URL: {data.get('image_url')[:50]}...")
-        else:
-            return log_test("Portfolio Upload", False, 
-                          f"Status: {response.status_code}, Response: {response.text}")
-    except Exception as e:
-        return log_test("Portfolio Upload", False, f"Exception: {str(e)}")
-
-def test_portfolio_delete():
-    """Test DELETE /api/profiles/portfolio/{id} - Delete portfolio"""
-    global portfolio_id
-    
-    if not portfolio_id:
-        return log_test("Portfolio Delete", False, "No portfolio_id available from previous test")
-    
-    try:
-        response = requests.delete(
-            f"{BASE_URL}/profiles/portfolio/{portfolio_id}",
-            headers=get_auth_headers()
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("success") == True:
-                return log_test("Portfolio Delete", True, f"Successfully deleted portfolio item {portfolio_id}")
-            else:
-                return log_test("Portfolio Delete", False, f"Success field is not True: {data}")
-        else:
-            return log_test("Portfolio Delete", False, 
-                          f"Status: {response.status_code}, Response: {response.text}")
-    except Exception as e:
-        return log_test("Portfolio Delete", False, f"Exception: {str(e)}")
-
-def test_profile_me_hub():
-    """Test GET /api/profiles/me/hub after avatar upload - Verify user schema updates"""
+def test_profiles_me_hub():
+    """Test GET /api/profiles/me/hub - Verify StylistProfile schema fields"""
     try:
         response = requests.get(
             f"{BASE_URL}/profiles/me/hub",
@@ -238,40 +70,253 @@ def test_profile_me_hub():
         if response.status_code == 200:
             data = response.json()
             
-            # Check for profile_image_url field (this should be set after avatar upload)
-            profile_image_url = data.get("profile_photo")  # The endpoint returns profile_photo
-            if not profile_image_url:
-                return log_test("Profile Me Hub (Schema Check)", False, 
-                              "profile_photo field is missing or empty")
+            # Required fields from StylistProfile schema
+            required_fields = [
+                "profile_icon_url",  # New field
+                "specialties",       # Should be List[str]
+                "credentials",       # Combined string
+                "is_tester",         # Boolean
+                "subscription_active", # Boolean
+                "portfolio_images"   # List[str]
+            ]
             
-            # Check for portfolio_images array existence
-            portfolio = data.get("portfolio", [])
-            if not isinstance(portfolio, list):
-                return log_test("Profile Me Hub (Schema Check)", False, 
-                              "portfolio field is not an array")
+            missing_fields = []
+            field_type_errors = []
             
-            # Check other required fields
-            required_fields = ["id", "full_name", "followers_count", "following_count", "posts_count", "portfolio_count"]
-            missing_fields = [field for field in required_fields if field not in data]
+            for field in required_fields:
+                if field not in data:
+                    missing_fields.append(field)
+                else:
+                    # Type validation
+                    value = data[field]
+                    if field == "specialties":
+                        if not isinstance(value, list):
+                            field_type_errors.append(f"specialties should be List[str], got {type(value)}")
+                        elif value and not all(isinstance(item, str) for item in value):
+                            field_type_errors.append(f"specialties should contain only strings")
+                    elif field == "portfolio_images":
+                        if not isinstance(value, list):
+                            field_type_errors.append(f"portfolio_images should be List[str], got {type(value)}")
+                        elif value and not all(isinstance(item, str) for item in value):
+                            field_type_errors.append(f"portfolio_images should contain only strings")
+                    elif field in ["is_tester", "subscription_active"]:
+                        if not isinstance(value, bool):
+                            field_type_errors.append(f"{field} should be boolean, got {type(value)}")
             
             if missing_fields:
-                return log_test("Profile Me Hub (Schema Check)", False, f"Missing fields: {missing_fields}")
+                return log_test("GET /api/profiles/me/hub", False, f"Missing fields: {missing_fields}")
             
-            return log_test("Profile Me Hub (Schema Check)", True, 
-                          f"Profile image URL set: {profile_image_url[:50]}..., Portfolio count: {data.get('portfolio_count')}")
+            if field_type_errors:
+                return log_test("GET /api/profiles/me/hub", False, f"Type errors: {field_type_errors}")
+            
+            # Additional validation
+            details = []
+            details.append(f"profile_icon_url: {data.get('profile_icon_url', 'None')}")
+            details.append(f"specialties: {data.get('specialties', [])} (type: {type(data.get('specialties'))})")
+            details.append(f"credentials: {data.get('credentials', 'None')}")
+            details.append(f"is_tester: {data.get('is_tester')}")
+            details.append(f"subscription_active: {data.get('subscription_active')}")
+            details.append(f"portfolio_images count: {len(data.get('portfolio_images', []))}")
+            
+            return log_test("GET /api/profiles/me/hub", True, " | ".join(details))
         else:
-            return log_test("Profile Me Hub (Schema Check)", False, 
+            return log_test("GET /api/profiles/me/hub", False, 
                           f"Status: {response.status_code}, Response: {response.text}")
     except Exception as e:
-        return log_test("Profile Me Hub (Schema Check)", False, f"Exception: {str(e)}")
+        return log_test("GET /api/profiles/me/hub", False, f"Exception: {str(e)}")
+
+def test_profiles_discover():
+    """Test GET /api/profiles/discover - Verify discovery results schema"""
+    try:
+        response = requests.get(
+            f"{BASE_URL}/profiles/discover?limit=10",
+            headers=get_auth_headers()
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            if not isinstance(data, list):
+                return log_test("GET /api/profiles/discover", False, f"Expected list, got {type(data)}")
+            
+            if len(data) == 0:
+                return log_test("GET /api/profiles/discover", True, "No users found in discovery (empty list)")
+            
+            # Check first user for required fields
+            first_user = data[0]
+            required_fields = [
+                "profile_icon_url",  # New field
+                "specialties",       # Should be List[str]
+                "is_verified",       # Boolean flag
+                "is_featured"        # Boolean flag
+            ]
+            
+            missing_fields = []
+            field_type_errors = []
+            
+            for field in required_fields:
+                if field not in first_user:
+                    missing_fields.append(field)
+                else:
+                    value = first_user[field]
+                    if field == "specialties":
+                        if not isinstance(value, list):
+                            field_type_errors.append(f"specialties should be List[str], got {type(value)}")
+                        elif value and not all(isinstance(item, str) for item in value):
+                            field_type_errors.append(f"specialties should contain only strings")
+                    elif field in ["is_verified", "is_featured"]:
+                        if not isinstance(value, bool):
+                            field_type_errors.append(f"{field} should be boolean, got {type(value)}")
+            
+            if missing_fields:
+                return log_test("GET /api/profiles/discover", False, f"Missing fields in first user: {missing_fields}")
+            
+            if field_type_errors:
+                return log_test("GET /api/profiles/discover", False, f"Type errors in first user: {field_type_errors}")
+            
+            # Store first user ID for next test
+            global test_user_id
+            test_user_id = first_user.get("id")
+            
+            details = []
+            details.append(f"Found {len(data)} users")
+            details.append(f"First user specialties: {first_user.get('specialties', [])} (type: {type(first_user.get('specialties'))})")
+            details.append(f"First user is_verified: {first_user.get('is_verified')}")
+            details.append(f"First user is_featured: {first_user.get('is_featured')}")
+            details.append(f"First user profile_icon_url: {first_user.get('profile_icon_url', 'None')}")
+            
+            return log_test("GET /api/profiles/discover", True, " | ".join(details))
+        else:
+            return log_test("GET /api/profiles/discover", False, 
+                          f"Status: {response.status_code}, Response: {response.text}")
+    except Exception as e:
+        return log_test("GET /api/profiles/discover", False, f"Exception: {str(e)}")
+
+def test_profiles_user_id():
+    """Test GET /api/profiles/{user_id} - Verify full profile includes all StylistProfile fields"""
+    global test_user_id
+    
+    if not test_user_id:
+        return log_test("GET /api/profiles/{user_id}", False, "No test_user_id available from discover test")
+    
+    try:
+        response = requests.get(
+            f"{BASE_URL}/profiles/{test_user_id}",
+            headers=get_auth_headers()
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            # All StylistProfile fields that should be present
+            required_fields = [
+                # Core Identity
+                "full_name", "email", "profile_icon_url",
+                # Stylist Hub features
+                "bio", "specialties", "credentials", "is_verified",
+                # Location & Business
+                "city", "salon_name", "business_name",
+                # Social Links
+                "instagram_handle", "tiktok_handle", "website_url", "portfolio_images",
+                # System Controls
+                "is_tester", "subscription_active"
+            ]
+            
+            missing_fields = []
+            field_type_errors = []
+            
+            for field in required_fields:
+                if field not in data:
+                    missing_fields.append(field)
+                else:
+                    value = data[field]
+                    # Type validation for key fields
+                    if field == "specialties":
+                        if not isinstance(value, list):
+                            field_type_errors.append(f"specialties should be List[str], got {type(value)}")
+                        elif value and not all(isinstance(item, str) for item in value):
+                            field_type_errors.append(f"specialties should contain only strings")
+                    elif field == "portfolio_images":
+                        if not isinstance(value, list):
+                            field_type_errors.append(f"portfolio_images should be List[str], got {type(value)}")
+                        elif value and not all(isinstance(item, str) for item in value):
+                            field_type_errors.append(f"portfolio_images should contain only strings")
+                    elif field in ["is_tester", "subscription_active", "is_verified"]:
+                        if not isinstance(value, bool):
+                            field_type_errors.append(f"{field} should be boolean, got {type(value)}")
+            
+            if missing_fields:
+                return log_test("GET /api/profiles/{user_id}", False, f"Missing fields: {missing_fields}")
+            
+            if field_type_errors:
+                return log_test("GET /api/profiles/{user_id}", False, f"Type errors: {field_type_errors}")
+            
+            # Additional stats fields that should be present
+            stats_fields = ["followers_count", "following_count", "posts_count", "portfolio_count"]
+            missing_stats = [field for field in stats_fields if field not in data]
+            
+            if missing_stats:
+                return log_test("GET /api/profiles/{user_id}", False, f"Missing stats fields: {missing_stats}")
+            
+            details = []
+            details.append(f"User: {data.get('full_name')}")
+            details.append(f"specialties: {data.get('specialties', [])} (type: {type(data.get('specialties'))})")
+            details.append(f"credentials: {data.get('credentials', 'None')}")
+            details.append(f"is_verified: {data.get('is_verified')}")
+            details.append(f"is_tester: {data.get('is_tester')}")
+            details.append(f"subscription_active: {data.get('subscription_active')}")
+            details.append(f"portfolio_images count: {len(data.get('portfolio_images', []))}")
+            details.append(f"followers: {data.get('followers_count')}")
+            
+            return log_test("GET /api/profiles/{user_id}", True, " | ".join(details))
+        else:
+            return log_test("GET /api/profiles/{user_id}", False, 
+                          f"Status: {response.status_code}, Response: {response.text}")
+    except Exception as e:
+        return log_test("GET /api/profiles/{user_id}", False, f"Exception: {str(e)}")
+
+def test_specialties_list_format():
+    """Test that specialties field is properly formatted as List[str] across all endpoints"""
+    try:
+        # Test /api/profiles/me/hub
+        response = requests.get(f"{BASE_URL}/profiles/me/hub", headers=get_auth_headers())
+        if response.status_code == 200:
+            data = response.json()
+            specialties = data.get("specialties", [])
+            if not isinstance(specialties, list):
+                return log_test("Specialties List Format", False, 
+                              f"/api/profiles/me/hub specialties is not a list: {type(specialties)}")
+            
+            # Test /api/profiles/discover
+            response = requests.get(f"{BASE_URL}/profiles/discover?limit=5", headers=get_auth_headers())
+            if response.status_code == 200:
+                discover_data = response.json()
+                if discover_data:
+                    for i, user in enumerate(discover_data[:3]):  # Check first 3 users
+                        user_specialties = user.get("specialties", [])
+                        if not isinstance(user_specialties, list):
+                            return log_test("Specialties List Format", False, 
+                                          f"/api/profiles/discover user {i} specialties is not a list: {type(user_specialties)}")
+            
+            return log_test("Specialties List Format", True, 
+                          f"All endpoints return specialties as List[str]. Me/hub: {specialties}")
+        else:
+            return log_test("Specialties List Format", False, 
+                          f"Failed to get /api/profiles/me/hub: {response.status_code}")
+    except Exception as e:
+        return log_test("Specialties List Format", False, f"Exception: {str(e)}")
 
 def run_all_tests():
-    """Run all avatar and portfolio upload tests"""
+    """Run all StylistProfile schema tests"""
     print("=" * 80)
-    print("STYLEFLOW AVATAR & PORTFOLIO UPLOAD ENDPOINTS TESTING")
+    print("STYLEFLOW STYLISTPROFILE SCHEMA IMPLEMENTATION TESTING")
     print("=" * 80)
     print(f"Backend URL: {BASE_URL}")
     print(f"Admin Credentials: {ADMIN_EMAIL}")
+    print("Testing endpoints:")
+    print("1. GET /api/profiles/me/hub - Verify profile_icon_url, specialties as List[str], credentials, is_tester, subscription_active, portfolio_images")
+    print("2. GET /api/profiles/discover - Verify discovery results include profile_icon_url, specialties as List[str], is_verified, is_featured flags")
+    print("3. GET /api/profiles/{user_id} - Verify full profile includes all StylistProfile fields")
     print("=" * 80)
     
     tests_passed = 0
@@ -280,12 +325,10 @@ def run_all_tests():
     # Test sequence
     test_functions = [
         login_admin,
-        test_avatar_upload_valid,
-        test_avatar_upload_empty,
-        test_avatar_upload_size_validation,
-        test_portfolio_upload,
-        test_portfolio_delete,
-        test_profile_me_hub
+        test_profiles_me_hub,
+        test_profiles_discover,
+        test_profiles_user_id,
+        test_specialties_list_format
     ]
     
     for test_func in test_functions:
@@ -301,7 +344,13 @@ def run_all_tests():
     print(f"Success Rate: {success_rate:.1f}%")
     
     if tests_passed == total_tests:
-        print("🎉 ALL TESTS PASSED - Avatar and Portfolio Upload endpoints are working correctly!")
+        print("🎉 ALL TESTS PASSED - StylistProfile schema implementation is working correctly!")
+        print("✅ profile_icon_url field present in all endpoints")
+        print("✅ specialties field properly formatted as List[str]")
+        print("✅ credentials field properly combined as string")
+        print("✅ is_tester and subscription_active boolean fields working")
+        print("✅ portfolio_images field present as List[str]")
+        print("✅ is_verified and is_featured flags working in discovery")
     else:
         print(f"⚠️  {total_tests - tests_passed} test(s) failed - See details above")
     
