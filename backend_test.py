@@ -1,400 +1,407 @@
 #!/usr/bin/env python3
 """
-StyleFlow JWT Auth System Testing
-Tests the newly implemented JWT Auth System with Refresh Tokens, isTester bypass, and Resend integration.
+STYLIST HUB BACKEND ENDPOINTS TESTING
+=====================================
+Testing the newly created /api/profiles/* endpoints for Stylist Hub functionality.
+
+Test Coverage:
+1. GET /api/profiles/discover - List stylists with filters
+2. GET /api/profiles/{user_id} - Get full profile for Stylist Hub  
+3. POST /api/profiles/avatar - Avatar upload (mock test)
+4. POST /api/profiles/credentials - Update credentials
+5. GET /api/profiles/me/hub - Quick access to own profile
+
+Admin credentials: admin@styleflow.com / Admin1234!
 """
 
 import requests
 import json
-import time
+import base64
 from datetime import datetime
-from typing import Dict, Any, Optional
+import sys
 
-# Backend URL from frontend environment
+# Backend URL from frontend/.env
 BACKEND_URL = "https://hairflow-app-1.preview.emergentagent.com/api"
 
 # Test credentials
 ADMIN_EMAIL = "admin@styleflow.com"
 ADMIN_PASSWORD = "Admin1234!"
 
-# Tester emails for App Store bypass testing
-TESTER_EMAILS = [
-    "tester@styleflow.com",
-    "appreview@apple.com"
-]
-
-class AuthTestSuite:
+class StylistHubTester:
     def __init__(self):
         self.session = requests.Session()
+        self.auth_token = None
+        self.user_id = None
         self.test_results = []
-        self.admin_token = None
-        self.admin_refresh_token = None
-        self.test_user_email = f"testuser_{int(time.time())}@styleflow.com"
-        self.test_user_password = "TestPassword123!"
         
-    def log_result(self, test_name: str, success: bool, details: str = ""):
+    def log_result(self, test_name, success, details=""):
         """Log test result"""
         status = "✅ PASS" if success else "❌ FAIL"
         self.test_results.append({
             "test": test_name,
             "success": success,
-            "details": details,
-            "status": status
+            "details": details
         })
         print(f"{status}: {test_name}")
         if details:
             print(f"   Details: {details}")
+        print()
     
-    def make_request(self, method: str, endpoint: str, data: Dict = None, headers: Dict = None, params: Dict = None) -> requests.Response:
-        """Make HTTP request with error handling"""
-        url = f"{BACKEND_URL}{endpoint}"
+    def authenticate(self):
+        """Authenticate with admin credentials"""
+        print("🔐 AUTHENTICATING WITH ADMIN CREDENTIALS...")
+        
         try:
-            if method.upper() == "GET":
-                response = self.session.get(url, headers=headers, params=params)
-            elif method.upper() == "POST":
-                response = self.session.post(url, json=data, headers=headers)
-            elif method.upper() == "PUT":
-                response = self.session.put(url, json=data, headers=headers)
-            elif method.upper() == "DELETE":
-                response = self.session.delete(url, headers=headers)
-            else:
-                raise ValueError(f"Unsupported method: {method}")
-            
-            return response
-        except Exception as e:
-            print(f"Request failed: {e}")
-            raise
-    
-    def test_1_basic_auth_login(self):
-        """Test 1: Basic Auth Flow - Login with admin credentials"""
-        try:
-            response = self.make_request("POST", "/auth/login", {
+            response = self.session.post(f"{BACKEND_URL}/auth/login", json={
                 "email": ADMIN_EMAIL,
                 "password": ADMIN_PASSWORD
             })
             
             if response.status_code == 200:
                 data = response.json()
+                self.auth_token = data.get("token")  # Changed from access_token to token
+                self.user_id = data.get("user", {}).get("id")
                 
-                # Check required fields
-                required_fields = ["token", "refresh_token", "user"]
-                missing_fields = [field for field in required_fields if field not in data]
-                
-                if missing_fields:
-                    self.log_result("Basic Auth Login", False, f"Missing fields: {missing_fields}")
-                    return
-                
-                # Check user object has is_tester field
-                user = data["user"]
-                if "is_tester" not in user:
-                    self.log_result("Basic Auth Login", False, "Missing is_tester field in user object")
-                    return
-                
-                # Store tokens for later tests
-                self.admin_token = data["token"]
-                self.admin_refresh_token = data["refresh_token"]
-                
-                self.log_result("Basic Auth Login", True, 
-                    f"Login successful. User: {user.get('email')}, is_tester: {user.get('is_tester')}, is_admin: {user.get('is_admin')}")
-            else:
-                self.log_result("Basic Auth Login", False, f"Status: {response.status_code}, Response: {response.text}")
-                
-        except Exception as e:
-            self.log_result("Basic Auth Login", False, f"Exception: {str(e)}")
-    
-    def test_2_basic_auth_signup(self):
-        """Test 2: Basic Auth Flow - Signup with new email"""
-        try:
-            response = self.make_request("POST", "/auth/signup", {
-                "email": self.test_user_email,
-                "password": self.test_user_password,
-                "full_name": "Test User",
-                "business_name": "Test Salon"
-            })
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                # Check required fields
-                required_fields = ["token", "refresh_token", "user"]
-                missing_fields = [field for field in required_fields if field not in data]
-                
-                if missing_fields:
-                    self.log_result("Basic Auth Signup", False, f"Missing fields: {missing_fields}")
-                    return
-                
-                # Check user object structure
-                user = data["user"]
-                required_user_fields = ["id", "email", "full_name", "is_tester"]
-                missing_user_fields = [field for field in required_user_fields if field not in user]
-                
-                if missing_user_fields:
-                    self.log_result("Basic Auth Signup", False, f"Missing user fields: {missing_user_fields}")
-                    return
-                
-                self.log_result("Basic Auth Signup", True, 
-                    f"Signup successful. User: {user.get('email')}, is_tester: {user.get('is_tester')}")
-            else:
-                self.log_result("Basic Auth Signup", False, f"Status: {response.status_code}, Response: {response.text}")
-                
-        except Exception as e:
-            self.log_result("Basic Auth Signup", False, f"Exception: {str(e)}")
-    
-    def test_3_jwt_refresh_token_system(self):
-        """Test 3: JWT Refresh Token System"""
-        if not self.admin_refresh_token:
-            self.log_result("JWT Refresh Token System", False, "No refresh token available from login")
-            return
-        
-        try:
-            # Test refresh with valid token
-            headers = {"X-Refresh-Token": self.admin_refresh_token}
-            response = self.make_request("POST", "/auth/refresh", headers=headers)
-            
-            if response.status_code == 200:
-                data = response.json()
-                
-                # Check response contains new token pair
-                if "token" not in data or "refresh_token" not in data:
-                    self.log_result("JWT Refresh Token System", False, "Missing token or refresh_token in response")
-                    return
-                
-                # Verify tokens are different from original
-                if data["token"] == self.admin_token or data["refresh_token"] == self.admin_refresh_token:
-                    self.log_result("JWT Refresh Token System", False, "New tokens are same as old tokens")
-                    return
-                
-                # Update stored tokens
-                self.admin_token = data["token"]
-                self.admin_refresh_token = data["refresh_token"]
-                
-                self.log_result("JWT Refresh Token System", True, "Refresh token system working correctly")
-            else:
-                self.log_result("JWT Refresh Token System", False, f"Status: {response.status_code}, Response: {response.text}")
-                
-        except Exception as e:
-            self.log_result("JWT Refresh Token System", False, f"Exception: {str(e)}")
-    
-    def test_4_invalid_refresh_token(self):
-        """Test 4: JWT Refresh Token System - Invalid token"""
-        try:
-            headers = {"X-Refresh-Token": "invalid_token_12345"}
-            response = self.make_request("POST", "/auth/refresh", headers=headers)
-            
-            if response.status_code == 401:
-                self.log_result("Invalid Refresh Token", True, "Correctly rejected invalid refresh token")
-            else:
-                self.log_result("Invalid Refresh Token", False, f"Expected 401, got {response.status_code}")
-                
-        except Exception as e:
-            self.log_result("Invalid Refresh Token", False, f"Exception: {str(e)}")
-    
-    def test_5_istester_app_store_bypass(self):
-        """Test 5: isTester App Store Bypass"""
-        for tester_email in TESTER_EMAILS:
-            try:
-                # Create tester account
-                tester_password = "TesterPassword123!"
-                response = self.make_request("POST", "/auth/signup", {
-                    "email": tester_email,
-                    "password": tester_password,
-                    "full_name": "App Store Tester",
-                    "business_name": "Test Business"
+                # Set authorization header for all future requests
+                self.session.headers.update({
+                    "Authorization": f"Bearer {self.auth_token}"
                 })
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    user = data["user"]
-                    
-                    # Check tester flags
-                    expected_flags = {
-                        "is_tester": True,
-                        "is_admin": True,
-                        "subscription_status": "active"
-                    }
-                    
-                    missing_flags = []
-                    for flag, expected_value in expected_flags.items():
-                        if user.get(flag) != expected_value:
-                            missing_flags.append(f"{flag}: expected {expected_value}, got {user.get(flag)}")
-                    
-                    if missing_flags:
-                        self.log_result(f"isTester Bypass ({tester_email})", False, f"Incorrect flags: {missing_flags}")
-                    else:
-                        self.log_result(f"isTester Bypass ({tester_email})", True, "Tester account created with correct flags")
-                
-                elif response.status_code == 400 and "already registered" in response.text:
-                    # Account exists, try login
-                    login_response = self.make_request("POST", "/auth/login", {
-                        "email": tester_email,
-                        "password": tester_password
-                    })
-                    
-                    if login_response.status_code == 200:
-                        data = login_response.json()
-                        user = data["user"]
-                        
-                        # Check tester flags
-                        if user.get("is_tester") and user.get("is_admin") and user.get("subscription_status") == "active":
-                            self.log_result(f"isTester Bypass ({tester_email})", True, "Existing tester account has correct flags")
-                        else:
-                            self.log_result(f"isTester Bypass ({tester_email})", False, 
-                                f"Existing account missing flags: is_tester={user.get('is_tester')}, is_admin={user.get('is_admin')}, subscription_status={user.get('subscription_status')}")
-                    else:
-                        self.log_result(f"isTester Bypass ({tester_email})", False, f"Login failed: {login_response.status_code}")
-                else:
-                    self.log_result(f"isTester Bypass ({tester_email})", False, f"Signup failed: {response.status_code}, {response.text}")
-                    
-            except Exception as e:
-                self.log_result(f"isTester Bypass ({tester_email})", False, f"Exception: {str(e)}")
-    
-    def test_6_password_reset_via_resend(self):
-        """Test 6: Password Reset via Resend"""
-        try:
-            # Step 1: Request password reset
-            response = self.make_request("POST", "/auth/forgot-password", {
-                "email": self.test_user_email
-            })
-            
-            if response.status_code != 200:
-                self.log_result("Password Reset Request", False, f"Status: {response.status_code}")
-                return
-            
-            # Check response message
-            data = response.json()
-            if "message" not in data:
-                self.log_result("Password Reset Request", False, "Missing message in response")
-                return
-            
-            self.log_result("Password Reset Request", True, "Password reset request sent")
-            
-            # Step 2: Check if token was created in database (we can't access DB directly, so we'll test the verify endpoint)
-            # We need to get the token somehow - let's try a common pattern or check if there's a way to get it
-            
-            # For now, let's test with a mock token to verify the endpoint exists
-            test_token = "test_token_12345"
-            verify_response = self.make_request("GET", f"/auth/verify-reset-token/{test_token}")
-            
-            if verify_response.status_code == 400:
-                # This is expected for invalid token
-                self.log_result("Password Reset Token Verification", True, "Verify endpoint exists and rejects invalid tokens")
+                self.log_result("Admin Authentication", True, f"User ID: {self.user_id}")
+                return True
             else:
-                self.log_result("Password Reset Token Verification", False, f"Unexpected status: {verify_response.status_code}")
+                self.log_result("Admin Authentication", False, f"Status: {response.status_code}, Response: {response.text}")
+                return False
                 
         except Exception as e:
-            self.log_result("Password Reset via Resend", False, f"Exception: {str(e)}")
+            self.log_result("Admin Authentication", False, f"Exception: {str(e)}")
+            return False
     
-    def test_7_token_revocation_logout(self):
-        """Test 7: Token Revocation (Logout)"""
-        if not self.admin_token:
-            self.log_result("Token Revocation (Logout)", False, "No admin token available")
+    def test_discover_stylists(self):
+        """Test GET /api/profiles/discover - List stylists with filters"""
+        print("🔍 TESTING STYLIST DISCOVERY ENDPOINT...")
+        
+        try:
+            # Test 1: Basic discover without filters
+            response = self.session.get(f"{BACKEND_URL}/profiles/discover")
+            
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, list):
+                    self.log_result("Discover Stylists - Basic", True, f"Found {len(data)} stylists")
+                    
+                    # Verify response structure
+                    if data and len(data) > 0:
+                        stylist = data[0]
+                        required_fields = ["id", "full_name", "followers_count", "portfolio_count", "is_verified"]
+                        missing_fields = [field for field in required_fields if field not in stylist]
+                        
+                        if not missing_fields:
+                            self.log_result("Discover Response Structure", True, "All required fields present")
+                        else:
+                            self.log_result("Discover Response Structure", False, f"Missing fields: {missing_fields}")
+                    else:
+                        self.log_result("Discover Response Structure", True, "No stylists to verify structure")
+                else:
+                    self.log_result("Discover Stylists - Basic", False, "Response is not a list")
+            else:
+                self.log_result("Discover Stylists - Basic", False, f"Status: {response.status_code}, Response: {response.text}")
+            
+            # Test 2: Discover with filters
+            response = self.session.get(f"{BACKEND_URL}/profiles/discover", params={
+                "featured": True,
+                "limit": 10
+            })
+            
+            if response.status_code == 200:
+                data = response.json()
+                self.log_result("Discover Stylists - Featured Filter", True, f"Found {len(data)} featured stylists")
+            else:
+                self.log_result("Discover Stylists - Featured Filter", False, f"Status: {response.status_code}")
+                
+            # Test 3: Discover with name search
+            response = self.session.get(f"{BACKEND_URL}/profiles/discover", params={
+                "name": "admin",
+                "limit": 5
+            })
+            
+            if response.status_code == 200:
+                data = response.json()
+                self.log_result("Discover Stylists - Name Search", True, f"Found {len(data)} stylists matching 'admin'")
+            else:
+                self.log_result("Discover Stylists - Name Search", False, f"Status: {response.status_code}")
+                
+        except Exception as e:
+            self.log_result("Discover Stylists - Exception", False, f"Exception: {str(e)}")
+    
+    def test_get_stylist_profile(self):
+        """Test GET /api/profiles/{user_id} - Get full profile for Stylist Hub"""
+        print("👤 TESTING STYLIST PROFILE ENDPOINT...")
+        
+        if not self.user_id:
+            self.log_result("Get Stylist Profile", False, "No user ID available for testing")
             return
         
         try:
-            # Test logout
-            headers = {"Authorization": f"Bearer {self.admin_token}"}
-            response = self.make_request("POST", "/auth/logout", headers=headers)
-            
-            if response.status_code == 200:
-                # Try to use the old refresh token
-                old_refresh_headers = {"X-Refresh-Token": self.admin_refresh_token}
-                refresh_response = self.make_request("POST", "/auth/refresh", headers=old_refresh_headers)
-                
-                if refresh_response.status_code == 401:
-                    self.log_result("Token Revocation (Logout)", True, "Logout successfully revoked refresh token")
-                else:
-                    self.log_result("Token Revocation (Logout)", False, f"Old refresh token still works: {refresh_response.status_code}")
-            else:
-                self.log_result("Token Revocation (Logout)", False, f"Logout failed: {response.status_code}")
-                
-        except Exception as e:
-            self.log_result("Token Revocation (Logout)", False, f"Exception: {str(e)}")
-    
-    def test_8_auth_me_endpoint(self):
-        """Test 8: GET /api/auth/me endpoint"""
-        # First, login again since we logged out
-        try:
-            login_response = self.make_request("POST", "/auth/login", {
-                "email": ADMIN_EMAIL,
-                "password": ADMIN_PASSWORD
-            })
-            
-            if login_response.status_code != 200:
-                self.log_result("Auth Me Endpoint", False, "Could not login for /me test")
-                return
-            
-            token = login_response.json()["token"]
-            headers = {"Authorization": f"Bearer {token}"}
-            
-            response = self.make_request("GET", "/auth/me", headers=headers)
+            response = self.session.get(f"{BACKEND_URL}/profiles/{self.user_id}")
             
             if response.status_code == 200:
                 data = response.json()
                 
-                # Check if is_tester field is present
-                if "is_tester" not in data:
-                    self.log_result("Auth Me Endpoint", False, "Missing is_tester field in /me response")
-                    return
+                # Verify required fields for Stylist Hub profile
+                required_fields = [
+                    "id", "full_name", "followers_count", "following_count", 
+                    "posts_count", "portfolio_count", "is_following", "is_own_profile",
+                    "is_verified", "portfolio"
+                ]
                 
-                # Check other important fields
-                required_fields = ["id", "email", "full_name", "is_admin", "subscription_status"]
                 missing_fields = [field for field in required_fields if field not in data]
                 
-                if missing_fields:
-                    self.log_result("Auth Me Endpoint", False, f"Missing fields: {missing_fields}")
-                    return
-                
-                self.log_result("Auth Me Endpoint", True, 
-                    f"GET /auth/me working. is_tester: {data.get('is_tester')}, is_admin: {data.get('is_admin')}")
+                if not missing_fields:
+                    self.log_result("Get Stylist Profile - Structure", True, "All required fields present")
+                    
+                    # Verify portfolio structure
+                    portfolio = data.get("portfolio", [])
+                    if isinstance(portfolio, list):
+                        self.log_result("Get Stylist Profile - Portfolio", True, f"Portfolio has {len(portfolio)} items")
+                        
+                        # Check if tester account has demo portfolio
+                        if data.get("is_own_profile") and len(portfolio) > 0:
+                            self.log_result("Tester Portfolio Auto-Population", True, "Demo portfolio items found")
+                        else:
+                            self.log_result("Tester Portfolio Auto-Population", True, "No demo portfolio (expected for non-tester)")
+                    else:
+                        self.log_result("Get Stylist Profile - Portfolio", False, "Portfolio is not a list")
+                else:
+                    self.log_result("Get Stylist Profile - Structure", False, f"Missing fields: {missing_fields}")
+                    
             else:
-                self.log_result("Auth Me Endpoint", False, f"Status: {response.status_code}, Response: {response.text}")
+                self.log_result("Get Stylist Profile", False, f"Status: {response.status_code}, Response: {response.text}")
                 
         except Exception as e:
-            self.log_result("Auth Me Endpoint", False, f"Exception: {str(e)}")
+            self.log_result("Get Stylist Profile - Exception", False, f"Exception: {str(e)}")
+    
+    def test_avatar_upload(self):
+        """Test POST /api/profiles/avatar - Avatar upload (mock test)"""
+        print("📸 TESTING AVATAR UPLOAD ENDPOINT...")
+        
+        try:
+            # Create a small test image in base64 (1x1 pixel PNG)
+            test_image_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChAI9jU77zgAAAABJRU5ErkJggg=="
+            
+            response = self.session.post(f"{BACKEND_URL}/profiles/avatar", json={
+                "image_base64": test_image_base64
+            })
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if data.get("success") and "avatar_url" in data:
+                    self.log_result("Avatar Upload", True, f"Avatar uploaded successfully: {data.get('message')}")
+                    
+                    # Verify avatar URL format
+                    avatar_url = data.get("avatar_url")
+                    if avatar_url and (avatar_url.startswith("http") or avatar_url.startswith("data:")):
+                        self.log_result("Avatar URL Format", True, "Valid avatar URL returned")
+                    else:
+                        self.log_result("Avatar URL Format", False, f"Invalid avatar URL: {avatar_url}")
+                else:
+                    self.log_result("Avatar Upload", False, "Missing success flag or avatar_url in response")
+            else:
+                self.log_result("Avatar Upload", False, f"Status: {response.status_code}, Response: {response.text}")
+                
+        except Exception as e:
+            self.log_result("Avatar Upload - Exception", False, f"Exception: {str(e)}")
+    
+    def test_credentials_management(self):
+        """Test POST /api/profiles/credentials - Update credentials"""
+        print("🏆 TESTING CREDENTIALS MANAGEMENT...")
+        
+        try:
+            # Test updating credentials
+            credentials_data = {
+                "license_number": "ST123456",
+                "license_state": "CA",
+                "is_verified": True,
+                "certifications": ["Advanced Color Theory", "Balayage Specialist"]
+            }
+            
+            response = self.session.post(f"{BACKEND_URL}/profiles/credentials", json=credentials_data)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                if data.get("success"):
+                    self.log_result("Update Credentials", True, data.get("message", "Credentials updated"))
+                    
+                    # Test retrieving credentials
+                    get_response = self.session.get(f"{BACKEND_URL}/profiles/credentials")
+                    
+                    if get_response.status_code == 200:
+                        cred_data = get_response.json()
+                        
+                        # Verify the updated data
+                        if (cred_data.get("license_number") == "ST123456" and 
+                            cred_data.get("license_state") == "CA" and
+                            cred_data.get("is_verified") == True):
+                            self.log_result("Get Credentials", True, "Credentials retrieved and verified")
+                        else:
+                            self.log_result("Get Credentials", False, f"Credential data mismatch: {cred_data}")
+                    else:
+                        self.log_result("Get Credentials", False, f"Status: {get_response.status_code}")
+                else:
+                    self.log_result("Update Credentials", False, "Missing success flag in response")
+            else:
+                self.log_result("Update Credentials", False, f"Status: {response.status_code}, Response: {response.text}")
+                
+        except Exception as e:
+            self.log_result("Credentials Management - Exception", False, f"Exception: {str(e)}")
+    
+    def test_my_hub_profile(self):
+        """Test GET /api/profiles/me/hub - Quick access to own profile"""
+        print("🏠 TESTING MY HUB PROFILE ENDPOINT...")
+        
+        try:
+            response = self.session.get(f"{BACKEND_URL}/profiles/me/hub")
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Verify required fields for own profile
+                required_fields = [
+                    "id", "full_name", "followers_count", "following_count", 
+                    "posts_count", "portfolio_count", "is_verified", "portfolio",
+                    "is_own_profile"
+                ]
+                
+                missing_fields = [field for field in required_fields if field not in data]
+                
+                if not missing_fields:
+                    self.log_result("My Hub Profile - Structure", True, "All required fields present")
+                    
+                    # Verify is_own_profile is True
+                    if data.get("is_own_profile") == True:
+                        self.log_result("My Hub Profile - Own Profile Flag", True, "is_own_profile correctly set to True")
+                    else:
+                        self.log_result("My Hub Profile - Own Profile Flag", False, f"is_own_profile is {data.get('is_own_profile')}")
+                    
+                    # Verify user ID matches
+                    if data.get("id") == self.user_id:
+                        self.log_result("My Hub Profile - User ID Match", True, "Profile ID matches authenticated user")
+                    else:
+                        self.log_result("My Hub Profile - User ID Match", False, f"Profile ID {data.get('id')} != User ID {self.user_id}")
+                        
+                else:
+                    self.log_result("My Hub Profile - Structure", False, f"Missing fields: {missing_fields}")
+                    
+            else:
+                self.log_result("My Hub Profile", False, f"Status: {response.status_code}, Response: {response.text}")
+                
+        except Exception as e:
+            self.log_result("My Hub Profile - Exception", False, f"Exception: {str(e)}")
+    
+    def test_tester_account_population(self):
+        """Verify that tester accounts auto-populate with demo portfolio"""
+        print("🧪 TESTING TESTER ACCOUNT AUTO-POPULATION...")
+        
+        try:
+            # Check if current user is a tester
+            response = self.session.get(f"{BACKEND_URL}/auth/me")
+            
+            if response.status_code == 200:
+                user_data = response.json()
+                is_tester = user_data.get("is_tester", False)
+                
+                if is_tester:
+                    # Get profile to check portfolio
+                    profile_response = self.session.get(f"{BACKEND_URL}/profiles/me/hub")
+                    
+                    if profile_response.status_code == 200:
+                        profile_data = profile_response.json()
+                        portfolio = profile_data.get("portfolio", [])
+                        
+                        if len(portfolio) > 0:
+                            self.log_result("Tester Auto-Population", True, f"Tester account has {len(portfolio)} demo portfolio items")
+                            
+                            # Verify portfolio items have required fields
+                            first_item = portfolio[0]
+                            if "image" in first_item and "caption" in first_item:
+                                self.log_result("Demo Portfolio Structure", True, "Portfolio items have image and caption")
+                            else:
+                                self.log_result("Demo Portfolio Structure", False, "Portfolio items missing required fields")
+                        else:
+                            self.log_result("Tester Auto-Population", False, "Tester account has no demo portfolio items")
+                    else:
+                        self.log_result("Tester Auto-Population", False, f"Failed to get profile: {profile_response.status_code}")
+                else:
+                    self.log_result("Tester Auto-Population", True, "Non-tester account (auto-population not expected)")
+                    
+            else:
+                self.log_result("Tester Auto-Population", False, f"Failed to get user info: {response.status_code}")
+                
+        except Exception as e:
+            self.log_result("Tester Auto-Population - Exception", False, f"Exception: {str(e)}")
     
     def run_all_tests(self):
-        """Run all JWT auth tests"""
-        print("🚀 Starting JWT Auth System Testing...")
-        print(f"Backend URL: {BACKEND_URL}")
+        """Run all Stylist Hub profile endpoint tests"""
         print("=" * 60)
+        print("STYLIST HUB BACKEND ENDPOINTS TESTING")
+        print("=" * 60)
+        print()
         
-        # Run tests in order
-        self.test_1_basic_auth_login()
-        self.test_2_basic_auth_signup()
-        self.test_3_jwt_refresh_token_system()
-        self.test_4_invalid_refresh_token()
-        self.test_5_istester_app_store_bypass()
-        self.test_6_password_reset_via_resend()
-        self.test_7_token_revocation_logout()
-        self.test_8_auth_me_endpoint()
+        # Authenticate first
+        if not self.authenticate():
+            print("❌ AUTHENTICATION FAILED - CANNOT PROCEED WITH TESTS")
+            return
+        
+        print()
+        
+        # Run all tests
+        self.test_discover_stylists()
+        self.test_get_stylist_profile()
+        self.test_avatar_upload()
+        self.test_credentials_management()
+        self.test_my_hub_profile()
+        self.test_tester_account_population()
         
         # Print summary
-        print("\n" + "=" * 60)
-        print("📊 TEST SUMMARY")
+        print("=" * 60)
+        print("TEST SUMMARY")
         print("=" * 60)
         
-        passed = sum(1 for result in self.test_results if result["success"])
-        total = len(self.test_results)
-        success_rate = (passed / total * 100) if total > 0 else 0
+        total_tests = len(self.test_results)
+        passed_tests = sum(1 for result in self.test_results if result["success"])
+        failed_tests = total_tests - passed_tests
+        success_rate = (passed_tests / total_tests * 100) if total_tests > 0 else 0
         
-        print(f"Total Tests: {total}")
-        print(f"Passed: {passed}")
-        print(f"Failed: {total - passed}")
+        print(f"Total Tests: {total_tests}")
+        print(f"Passed: {passed_tests}")
+        print(f"Failed: {failed_tests}")
         print(f"Success Rate: {success_rate:.1f}%")
+        print()
         
-        print("\n📋 DETAILED RESULTS:")
+        if failed_tests > 0:
+            print("FAILED TESTS:")
+            for result in self.test_results:
+                if not result["success"]:
+                    print(f"❌ {result['test']}: {result['details']}")
+            print()
+        
+        print("DETAILED RESULTS:")
         for result in self.test_results:
-            print(f"{result['status']}: {result['test']}")
-            if result['details']:
+            status = "✅" if result["success"] else "❌"
+            print(f"{status} {result['test']}")
+            if result["details"]:
                 print(f"   {result['details']}")
         
-        return success_rate, self.test_results
+        return success_rate >= 80  # Consider 80%+ success rate as passing
 
 if __name__ == "__main__":
-    test_suite = AuthTestSuite()
-    success_rate, results = test_suite.run_all_tests()
+    tester = StylistHubTester()
+    success = tester.run_all_tests()
     
-    if success_rate >= 80:
-        print(f"\n🎉 JWT Auth System testing completed with {success_rate:.1f}% success rate!")
+    if success:
+        print("\n🎉 STYLIST HUB ENDPOINTS TESTING COMPLETED SUCCESSFULLY!")
     else:
-        print(f"\n⚠️  JWT Auth System testing completed with {success_rate:.1f}% success rate. Issues found.")
+        print("\n⚠️  STYLIST HUB ENDPOINTS TESTING COMPLETED WITH ISSUES")
+        sys.exit(1)

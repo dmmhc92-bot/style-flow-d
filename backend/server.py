@@ -55,6 +55,7 @@ from routes.users import router as users_router
 from routes.posts import router as posts_router
 from routes.admin import router as admin_router, get_admin_manager, get_grouped_queue_func
 from routes.subscription import router as subscription_router
+from routes.profiles import router as profiles_router
 
 api_router.include_router(auth_router)
 api_router.include_router(clients_router)
@@ -68,6 +69,7 @@ api_router.include_router(users_router)
 api_router.include_router(posts_router)
 api_router.include_router(admin_router)
 api_router.include_router(subscription_router)
+api_router.include_router(profiles_router)
 
 # Get admin manager for WebSocket
 admin_manager = get_admin_manager()
