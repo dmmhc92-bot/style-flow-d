@@ -1,4 +1,5 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Stack, useRouter, useRootNavigationState, useSegments } from 'expo-router';
 import * as Linking from 'expo-linking';
 import { useAuthStore } from '../store/authStore';
@@ -6,21 +7,81 @@ import { NetworkProvider } from '../contexts/NetworkContext';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { syncService } from '../utils/syncService';
 
+// Error Boundary Component for Auth Failures
+function AuthErrorFallback({ onRetry }: { onRetry: () => void }) {
+  return (
+    <View style={errorStyles.container}>
+      <Text style={errorStyles.title}>Session Error</Text>
+      <Text style={errorStyles.message}>
+        Unable to restore your session. Please log in again.
+      </Text>
+      <TouchableOpacity style={errorStyles.button} onPress={onRetry}>
+        <Text style={errorStyles.buttonText}>Go to Login</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const errorStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#0D0D0D',
+    padding: 24,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 12,
+  },
+  message: {
+    fontSize: 16,
+    color: '#888888',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  button: {
+    backgroundColor: '#00D09E',
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+  },
+  buttonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+});
+
 export default function RootLayout() {
   const { isLoading, isAuthenticated, loadUser } = useAuthStore();
   const router = useRouter();
   const segments = useSegments();
   const navigationState = useRootNavigationState();
+  const [authError, setAuthError] = useState(false);
 
+  // Initial auth check with error handling
   useEffect(() => {
-    loadUser();
-    // Initialize sync service for offline-first functionality
-    syncService.initialize();
+    const initAuth = async () => {
+      try {
+        setAuthError(false);
+        await loadUser();
+        // Initialize sync service for offline-first functionality
+        syncService.initialize();
+      } catch (error) {
+        console.error('[RootLayout] Auth initialization failed:', error);
+        setAuthError(true);
+      }
+    };
+    
+    initAuth();
   }, []);
 
   // Handle auth state changes and redirect appropriately
   useEffect(() => {
-    if (isLoading || !navigationState?.key) return;
+    if (isLoading || !navigationState?.key || authError) return;
 
     const inAuthGroup = segments[0] === 'auth';
     const inTabsGroup = segments[0] === 'tabs';
@@ -32,7 +93,7 @@ export default function RootLayout() {
       // User is not authenticated but in tabs - redirect to login
       router.replace('/auth/login');
     }
-  }, [isAuthenticated, segments, isLoading, navigationState?.key]);
+  }, [isAuthenticated, segments, isLoading, navigationState?.key, authError]);
 
   // Handle deep links for password reset - only when navigation is ready
   const handleDeepLink = useCallback((url: string) => {
@@ -80,6 +141,19 @@ export default function RootLayout() {
     };
   }, [navigationState?.key, handleDeepLink]);
 
+  // ERROR BOUNDARY: If auth check failed completely, show fallback
+  if (authError) {
+    return (
+      <AuthErrorFallback 
+        onRetry={() => {
+          setAuthError(false);
+          router.replace('/auth/login');
+        }} 
+      />
+    );
+  }
+
+  // LOADING STATE: Show spinner while checking auth
   if (isLoading) {
     return <LoadingSpinner />;
   }
