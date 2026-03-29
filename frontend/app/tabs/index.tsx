@@ -187,12 +187,12 @@ export default function DashboardScreen() {
           <QuickActionButton
             icon="camera"
             title="Add Photos"
-            onPress={() => router.push('/tabs/gallery')}
+            onPress={() => router.push('/profile/portfolio')}
           />
           <QuickActionButton
             icon="flask"
             title="Save Formula"
-            onPress={() => router.push('/tabs/clients')}
+            onPress={() => router.push('/settings/formulas')}
           />
         </View>
       </ScrollView>

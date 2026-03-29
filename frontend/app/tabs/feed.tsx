@@ -544,6 +544,17 @@ export default function FeedScreen() {
           </View>
         }
       />
+
+      {/* Floating Action Button - Create Post */}
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => router.push('/post/create')}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel="Create new post"
+      >
+        <Ionicons name="add" size={28} color="#FFFFFF" />
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
@@ -837,5 +848,22 @@ const styles = StyleSheet.create({
     fontSize: Typography.body,
     fontWeight: Typography.semibold,
     color: Colors.buttonText,
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 100,
+    right: Spacing.screenPadding,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    zIndex: 1000,
   },
 });
