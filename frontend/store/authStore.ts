@@ -204,23 +204,84 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const token = await storage.getToken();
       const refreshToken = await storage.get('refreshToken');
+      const cachedUser = await storage.getUserData();
       
-      if (token) {
+      // REMEMBER ME: If we have cached user data and token, authenticate immediately
+      if (token && cachedUser) {
         // Set token in memory cache for API calls
         setApiToken(token);
         
-        // Try to load from server
+        // Check if tester account from cache
+        const isTester = cachedUser.is_tester || false;
+        
+        // Set user ID for offline storage
+        if (cachedUser.id) {
+          offlineStorage.setUserId(cachedUser.id);
+        }
+        
+        // IMMEDIATE AUTH: Skip login screen using cached data
+        set({ 
+          user: cachedUser, 
+          token, 
+          refreshToken,
+          isAuthenticated: true, 
+          isLoading: false,
+          isTester
+        });
+        
+        // Try to refresh user data from server in background (non-blocking)
+        try {
+          const response = await api.get('/auth/me');
+          const freshUser = response.data;
+          
+          // Update with fresh data silently
+          await storage.setUserData(freshUser);
+          set({ 
+            user: freshUser, 
+            isTester: freshUser.is_tester || false
+          });
+          
+          // Initialize subscription (skip check for testers)
+          try {
+            const subscriptionStore = useSubscriptionStore.getState();
+            if (!freshUser.is_tester && freshUser.id) {
+              await subscriptionStore.identifyUser(freshUser.id);
+            }
+          } catch (subError) {
+            console.warn('[Auth] Subscription init error (non-blocking):', subError);
+          }
+        } catch (apiError: any) {
+          // If 401 and we have refresh token, try to refresh
+          if (apiError.response?.status === 401 && refreshToken) {
+            const refreshed = await get().refreshAccessToken();
+            if (!refreshed) {
+              // Token expired and couldn't refresh - but keep cached user for offline
+              console.log('[Auth] Token refresh failed, using cached data');
+            }
+          } else {
+            // Backend unavailable - continue with cached data (offline mode)
+            console.log('[Auth] Backend unavailable, using cached user data');
+          }
+        }
+        return; // Already authenticated
+      }
+      
+      // No cached data - check if we have just a token
+      if (token) {
+        setApiToken(token);
+        
         try {
           const response = await api.get('/auth/me');
           const user = response.data;
           
-          // Check if tester account
           const isTester = user.is_tester || false;
           
-          // Set user ID for offline storage
           if (user.id) {
             offlineStorage.setUserId(user.id);
           }
+          
+          // Cache user data for future sessions
+          await storage.setUserData(user);
           
           set({ 
             user, 
@@ -231,17 +292,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             isTester
           });
           
-          // Initialize subscription (skip check for testers)
-          const subscriptionStore = useSubscriptionStore.getState();
-          if (!isTester && user.id) {
-            await subscriptionStore.identifyUser(user.id);
+          try {
+            const subscriptionStore = useSubscriptionStore.getState();
+            if (!isTester && user.id) {
+              await subscriptionStore.identifyUser(user.id);
+            }
+          } catch (subError) {
+            console.warn('[Auth] Subscription init error (non-blocking):', subError);
           }
         } catch (error: any) {
-          // If 401, try to refresh token
           if (error.response?.status === 401 && refreshToken) {
             const refreshed = await get().refreshAccessToken();
             if (refreshed) {
-              // Retry loading user
               const response = await api.get('/auth/me');
               const user = response.data;
               const isTester = user.is_tester || false;
@@ -249,6 +311,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
               if (user.id) {
                 offlineStorage.setUserId(user.id);
               }
+              
+              await storage.setUserData(user);
               
               set({ 
                 user, 
@@ -259,40 +323,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
               return;
             }
           }
-          
-          // If server is unavailable, try loading from local storage
-          const cachedUser = await storage.getUserData();
-          if (cachedUser) {
-            if (cachedUser.id) {
-              offlineStorage.setUserId(cachedUser.id);
-            }
-            set({ 
-              user: cachedUser, 
-              token, 
-              refreshToken,
-              isAuthenticated: true, 
-              isLoading: false,
-              isTester: cachedUser.is_tester || false
-            });
-          } else {
-            throw error;
-          }
+          // Token invalid and no refresh - user must log in
+          await storage.clearAll();
+          clearApiToken();
+          set({ isLoading: false, isAuthenticated: false });
         }
       } else {
-        set({ isLoading: false });
+        // No token at all
+        set({ isLoading: false, isAuthenticated: false });
       }
     } catch (error) {
-      // Clear token from memory on auth failure
-      clearApiToken();
-      await storage.clearAll();
-      set({ 
-        user: null, 
-        token: null, 
-        refreshToken: null,
-        isAuthenticated: false, 
-        isLoading: false,
-        isTester: false
-      });
+      console.error('[Auth] loadUser error:', error);
+      set({ isLoading: false, isAuthenticated: false });
     }
   },
 

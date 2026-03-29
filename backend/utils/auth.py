@@ -5,9 +5,9 @@ from datetime import datetime, timedelta
 from typing import Tuple, Optional, Dict, Any
 from core.config import settings
 
-# Token expiration times
-ACCESS_TOKEN_EXPIRE_MINUTES = 60  # 1 hour
-REFRESH_TOKEN_EXPIRE_DAYS = 30    # 30 days
+# Token expiration times - 99 YEARS for testing (never expire)
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.JWT_EXPIRATION_MINUTES  # From env: 599940 minutes (~9999 hours)
+REFRESH_TOKEN_EXPIRE_DAYS = 36500  # 100 years
 
 def hash_password(password: str) -> str:
     """Hash a password using bcrypt"""
