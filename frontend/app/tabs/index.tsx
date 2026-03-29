@@ -31,7 +31,13 @@ export default function DashboardScreen() {
   };
   
   const QuickActionButton = ({ icon, title, onPress }: any) => (
-    <TouchableOpacity style={styles.quickAction} onPress={onPress}>
+    <TouchableOpacity 
+      style={styles.quickAction} 
+      onPress={onPress}
+      activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={title}
+    >
       <View style={styles.quickActionIcon}>
         <Ionicons name={icon} size={24} color={Colors.accent} />
       </View>

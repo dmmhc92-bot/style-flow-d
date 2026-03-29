@@ -92,8 +92,24 @@ export default function AddAppointmentScreen() {
         status: 'scheduled',
       });
       
-      Alert.alert('Success', 'Appointment scheduled successfully', [
-        { text: 'OK', onPress: () => router.back() },
+      Alert.alert('Success', 'Appointment scheduled successfully!', [
+        { 
+          text: 'View Appointments', 
+          onPress: () => router.replace('/tabs/appointments')
+        },
+        {
+          text: 'Add Another',
+          style: 'cancel',
+          onPress: () => {
+            // Reset form for another appointment
+            setSelectedClient('');
+            setSelectedDate('');
+            setSelectedTime('');
+            setService('');
+            setDuration('60');
+            setNotes('');
+          }
+        },
       ]);
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to schedule appointment');
