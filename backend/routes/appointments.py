@@ -35,6 +35,32 @@ async def create_appointment(appointment_data: AppointmentCreate, current_user: 
     
     return AppointmentResponse(**appointment_doc)
 
+@router.get("/{appointment_id}")
+async def get_single_appointment(appointment_id: str, current_user: dict = Depends(get_current_user)):
+    """Get a single appointment by ID"""
+    try:
+        appointment = await db.appointments.find_one({
+            "_id": ObjectId(appointment_id), 
+            "user_id": str(current_user["_id"])
+        })
+    except:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    
+    if not appointment:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    
+    # Enrich with client name
+    try:
+        client = await db.clients.find_one({"_id": ObjectId(appointment["client_id"])})
+        appointment["client_name"] = client["name"] if client else None
+    except:
+        appointment["client_name"] = None
+    
+    return {
+        "id": str(appointment["_id"]),
+        **{k: v for k, v in appointment.items() if k != "_id"}
+    }
+
 @router.get("", response_model=List[AppointmentResponse])
 async def get_appointments(current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
