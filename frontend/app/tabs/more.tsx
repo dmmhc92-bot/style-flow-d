@@ -120,6 +120,12 @@ export default function MoreScreen() {
             />
             <View style={styles.divider} />
             <MenuItem
+              icon="people"
+              title="My Connections"
+              onPress={() => router.push('/settings/following')}
+            />
+            <View style={styles.divider} />
+            <MenuItem
               icon="bookmark"
               title="Saved Posts"
               onPress={() => router.push('/saved')}

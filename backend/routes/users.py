@@ -159,6 +159,72 @@ async def unfollow_user(user_id: str, current_user: dict = Depends(get_current_u
     
     return {"message": "User unfollowed successfully"}
 
+@router.delete("/users/{user_id}/follower")
+async def remove_follower(user_id: str, current_user: dict = Depends(get_current_user)):
+    """Remove a follower from your followers list"""
+    current_user_id = str(current_user["_id"])
+    
+    # Remove the follow relationship where user_id is following current_user
+    result = await db.follows.delete_one({
+        "follower_id": user_id,
+        "following_id": current_user_id
+    })
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="User is not following you")
+    
+    return {"message": "Follower removed successfully"}
+
+@router.get("/users/following")
+async def get_following_list(current_user: dict = Depends(get_current_user)):
+    """Get list of users the current user is following"""
+    current_user_id = str(current_user["_id"])
+    
+    # Get all follows where current user is the follower
+    follows = await db.follows.find({"follower_id": current_user_id}).to_list(1000)
+    
+    result = []
+    for follow in follows:
+        try:
+            user = await db.users.find_one({"_id": ObjectId(follow["following_id"])})
+            if user:
+                result.append({
+                    "id": str(user["_id"]),
+                    "full_name": user.get("full_name"),
+                    "profile_photo": user.get("profile_photo"),
+                    "business_name": user.get("business_name"),
+                    "is_verified": user.get("is_verified", False),
+                })
+        except:
+            continue
+    
+    return result
+
+@router.get("/users/followers")
+async def get_followers_list(current_user: dict = Depends(get_current_user)):
+    """Get list of users following the current user"""
+    current_user_id = str(current_user["_id"])
+    
+    # Get all follows where current user is being followed
+    follows = await db.follows.find({"following_id": current_user_id}).to_list(1000)
+    
+    result = []
+    for follow in follows:
+        try:
+            user = await db.users.find_one({"_id": ObjectId(follow["follower_id"])})
+            if user:
+                result.append({
+                    "id": str(user["_id"]),
+                    "full_name": user.get("full_name"),
+                    "profile_photo": user.get("profile_photo"),
+                    "business_name": user.get("business_name"),
+                    "is_verified": user.get("is_verified", False),
+                })
+        except:
+            continue
+    
+    return result
+
 # ==================== CONNECTION MANAGEMENT ====================
 
 @router.post("/connections/{user_id}")

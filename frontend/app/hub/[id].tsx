@@ -238,11 +238,17 @@ export default function StylistHubProfileScreen() {
                 <Text style={styles.statNumber}>{profile.portfolio_count || 0}</Text>
                 <Text style={styles.statLabel}>Works</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.statItem}>
+              <TouchableOpacity 
+                style={styles.statItem}
+                onPress={() => isOwnProfile && router.push('/settings/following')}
+              >
                 <Text style={styles.statNumber}>{profile.followers_count || 0}</Text>
                 <Text style={styles.statLabel}>Followers</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.statItem}>
+              <TouchableOpacity 
+                style={styles.statItem}
+                onPress={() => isOwnProfile && router.push('/settings/following')}
+              >
                 <Text style={styles.statNumber}>{profile.following_count || 0}</Text>
                 <Text style={styles.statLabel}>Following</Text>
               </TouchableOpacity>
