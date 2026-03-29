@@ -468,13 +468,33 @@ async def update_profile(data: dict, current_user: dict = Depends(get_current_us
 
 @router.delete("/account")
 async def delete_account(current_user: dict = Depends(get_current_user)):
+    """
+    Delete user account and ALL associated data.
+    Apple App Store Compliance: Immediate data deletion required.
+    """
     user_id = str(current_user["_id"])
     
-    # Delete all user data
+    # Cancel any active subscriptions (RevenueCat handles this via webhook when user deleted)
+    # Mark subscription as cancelled in our database
+    await db.users.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {"subscription_status": "cancelled", "deleted_at": datetime.utcnow()}}
+    )
+    
+    # Delete all user data (cascade delete)
     await db.clients.delete_many({"user_id": user_id})
     await db.appointments.delete_many({"user_id": user_id})
     await db.formulas.delete_many({"user_id": user_id})
     await db.posts.delete_many({"user_id": user_id})
+    await db.gallery.delete_many({"user_id": user_id})
+    await db.comments.delete_many({"user_id": user_id})
+    await db.likes.delete_many({"user_id": user_id})
+    await db.follows.delete_many({"$or": [{"follower_id": user_id}, {"following_id": user_id}]})
+    await db.reports.delete_many({"reporter_id": user_id})
+    await db.blocked_users.delete_many({"$or": [{"blocker_id": user_id}, {"blocked_id": user_id}]})
+    await db.notifications.delete_many({"user_id": user_id})
+    
+    # Finally delete the user account
     await db.users.delete_one({"_id": current_user["_id"]})
     
-    return {"message": "Account deleted successfully"}
+    return {"message": "Account and all data deleted successfully. Subscription cancelled."}
