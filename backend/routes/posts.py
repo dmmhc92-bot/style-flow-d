@@ -774,3 +774,119 @@ async def update_signature_styles(styles: List[str], current_user: dict = Depend
     )
     
     return {"signature_styles": valid_styles}
+
+# ==================== POST REPORTING WITH STRIKE INTEGRATION ====================
+
+REPORT_REASONS = [
+    "harassment", "inappropriate", "spam", "hate_speech", 
+    "sexual_content", "illegal", "impersonation", "other"
+]
+
+@router.post("/posts/{post_id}/report")
+async def report_post(
+    post_id: str, 
+    reason: str,
+    details: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Report a post for rule violation.
+    Triggers the automated Strike Engine for threshold-based enforcement.
+    """
+    from core.strike_engine import StrikeEngine
+    
+    reporter_id = str(current_user["_id"])
+    
+    # Validate post exists
+    post = await db.posts.find_one({"_id": ObjectId(post_id)})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    
+    reported_user_id = post["user_id"]
+    
+    # Can't report your own post
+    if reported_user_id == reporter_id:
+        raise HTTPException(status_code=400, detail="Cannot report your own post")
+    
+    # Validate reason
+    if reason.lower() not in REPORT_REASONS:
+        raise HTTPException(status_code=400, detail=f"Invalid reason. Must be one of: {REPORT_REASONS}")
+    
+    # Check if already reported by this user
+    existing_report = await db.reports.find_one({
+        "reporter_id": reporter_id,
+        "post_id": post_id
+    })
+    if existing_report:
+        raise HTTPException(status_code=400, detail="You have already reported this post")
+    
+    # Create the report
+    report_doc = {
+        "reporter_id": reporter_id,
+        "reported_user_id": reported_user_id,
+        "post_id": post_id,
+        "content_type": "post",
+        "reason": reason.lower(),
+        "details": details,
+        "status": "pending",
+        "created_at": datetime.utcnow()
+    }
+    
+    await db.reports.insert_one(report_doc)
+    
+    # Increment report count on the user
+    await db.users.update_one(
+        {"_id": ObjectId(reported_user_id)},
+        {"$inc": {"report_count": 1}}
+    )
+    
+    # Check report threshold and trigger Strike Engine if needed
+    user = await db.users.find_one({"_id": ObjectId(reported_user_id)})
+    report_count = user.get("report_count", 0)
+    
+    # Auto-action thresholds: 3 reports = warning, 6 = strike escalation
+    if report_count >= 3:
+        # Get all pending reports for this user
+        pending_reports = await db.reports.find({
+            "reported_user_id": reported_user_id,
+            "status": "pending"
+        }).to_list(100)
+        
+        report_ids = [str(r["_id"]) for r in pending_reports]
+        
+        # Trigger Strike Engine
+        strike_engine = StrikeEngine(db)
+        result = await strike_engine.process_violation(
+            user_id=reported_user_id,
+            violation_type=reason.lower(),
+            report_ids=report_ids,
+            details=f"Auto-triggered: {report_count} reports received. Latest: {details or 'No details provided'}"
+        )
+        
+        return {
+            "message": "Report submitted. Automated enforcement triggered.",
+            "action_taken": result.get("action_label"),
+            "strike_number": result.get("strike_number")
+        }
+    
+    return {
+        "message": "Report submitted successfully",
+        "report_count": report_count,
+        "action_taken": None
+    }
+
+@router.get("/posts/{post_id}/report-status")
+async def get_post_report_status(post_id: str, current_user: dict = Depends(get_current_user)):
+    """Check if a post has been reported by the current user"""
+    reporter_id = str(current_user["_id"])
+    
+    existing_report = await db.reports.find_one({
+        "reporter_id": reporter_id,
+        "post_id": post_id
+    })
+    
+    return {
+        "reported": existing_report is not None,
+        "report_id": str(existing_report["_id"]) if existing_report else None
+    }
+

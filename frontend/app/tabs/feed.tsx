@@ -10,6 +10,7 @@ import {
   Dimensions,
   ActivityIndicator,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -159,6 +160,38 @@ export default function FeedScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const skipRef = useRef(0);
+  const [reportingPostId, setReportingPostId] = useState<string | null>(null);
+
+  const handleReportPost = async (postId: string, reason: string) => {
+    try {
+      const response = await api.post(`/posts/${postId}/report`, null, {
+        params: { reason }
+      });
+      Alert.alert(
+        'Report Submitted',
+        response.data.action_taken 
+          ? `Report submitted. Action taken: ${response.data.action_taken}`
+          : 'Thank you for reporting. Our team will review this post.'
+      );
+      setReportingPostId(null);
+    } catch (error: any) {
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to submit report');
+    }
+  };
+
+  const showReportOptions = (postId: string) => {
+    Alert.alert(
+      'Report Post',
+      'Why are you reporting this post?',
+      [
+        { text: 'Harassment', onPress: () => handleReportPost(postId, 'harassment') },
+        { text: 'Inappropriate', onPress: () => handleReportPost(postId, 'inappropriate') },
+        { text: 'Spam', onPress: () => handleReportPost(postId, 'spam') },
+        { text: 'Hate Speech', onPress: () => handleReportPost(postId, 'hate_speech') },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
 
   useEffect(() => {
     loadInitialData();
@@ -364,6 +397,12 @@ export default function FeedScreen() {
           )}
         </View>
         <Text style={styles.postTime}>{formatTimeAgo(item.created_at)}</Text>
+        <TouchableOpacity
+          style={styles.moreButton}
+          onPress={() => showReportOptions(item.id)}
+        >
+          <Ionicons name="ellipsis-horizontal" size={20} color={Colors.textSecondary} />
+        </TouchableOpacity>
       </TouchableOpacity>
 
       {/* Share Caption */}
@@ -702,6 +741,10 @@ const styles = StyleSheet.create({
   postTime: {
     fontSize: Typography.caption,
     color: Colors.textLight,
+    marginRight: Spacing.sm,
+  },
+  moreButton: {
+    padding: Spacing.xs,
   },
   shareCaption: {
     fontSize: Typography.body,
