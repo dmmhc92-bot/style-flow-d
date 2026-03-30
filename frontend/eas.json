@@ -37,7 +37,10 @@
       },
       "ios": {
         "simulator": false,
-        "credentialsSource": "remote"
+        "credentialsSource": "remote",
+        "ascApiKeyPath": "./keys/AuthKey_7H48ZU4AD2.p8",
+        "ascApiKeyIssuerId": "e05d02ae-8a38-478e-a195-ffe1d868ef44",
+        "ascApiKeyId": "7H48ZU4AD2"
       }
     },
     "production": {
@@ -48,7 +51,10 @@
       },
       "ios": {
         "simulator": false,
-        "credentialsSource": "remote"
+        "credentialsSource": "remote",
+        "ascApiKeyPath": "./keys/AuthKey_7H48ZU4AD2.p8",
+        "ascApiKeyIssuerId": "e05d02ae-8a38-478e-a195-ffe1d868ef44",
+        "ascApiKeyId": "7H48ZU4AD2"
       },
       "android": {
         "buildType": "app-bundle",
@@ -57,6 +63,17 @@
     }
   },
   "submit": {
+    "testflight": {
+      "ios": {
+        "appleId": "DMMHC92@gmail.com",
+        "ascAppId": "6761026979",
+        "appleTeamId": "NTZB3ZFKXK",
+        "sku": "styleflow001",
+        "ascApiKeyPath": "./keys/AuthKey_7H48ZU4AD2.p8",
+        "ascApiKeyIssuerId": "e05d02ae-8a38-478e-a195-ffe1d868ef44",
+        "ascApiKeyId": "7H48ZU4AD2"
+      }
+    },
     "production": {
       "ios": {
         "appleId": "DMMHC92@gmail.com",
