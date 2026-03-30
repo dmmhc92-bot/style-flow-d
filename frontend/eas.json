@@ -31,16 +31,13 @@
     },
     "testflight": {
       "distribution": "store",
-      "autoIncrement": "buildNumber",
+      "autoIncrement": true,
       "env": {
         "APP_ENV": "production"
       },
       "ios": {
         "simulator": false,
-        "credentialsSource": "remote",
-        "ascApiKeyPath": "./keys/AuthKey_7H48ZU4AD2.p8",
-        "ascApiKeyIssuerId": "e05d02ae-8a38-478e-a195-ffe1d868ef44",
-        "ascApiKeyId": "7H48ZU4AD2"
+        "credentialsSource": "remote"
       }
     },
     "production": {
@@ -51,10 +48,7 @@
       },
       "ios": {
         "simulator": false,
-        "credentialsSource": "remote",
-        "ascApiKeyPath": "./keys/AuthKey_7H48ZU4AD2.p8",
-        "ascApiKeyIssuerId": "e05d02ae-8a38-478e-a195-ffe1d868ef44",
-        "ascApiKeyId": "7H48ZU4AD2"
+        "credentialsSource": "remote"
       },
       "android": {
         "buildType": "app-bundle",
@@ -83,10 +77,6 @@
         "ascApiKeyPath": "./keys/AuthKey_7H48ZU4AD2.p8",
         "ascApiKeyIssuerId": "e05d02ae-8a38-478e-a195-ffe1d868ef44",
         "ascApiKeyId": "7H48ZU4AD2"
-      },
-      "android": {
-        "serviceAccountKeyPath": "",
-        "track": "internal"
       }
     }
   }
