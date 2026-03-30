@@ -19,7 +19,7 @@ export const AppConfig = {
   
   subscription: {
     productId: 'styleflow_pro_monthly',
-    price: '$29.99',
+    price: '$12.99',
     pricingPeriod: 'month',
     features: [
       'Unlimited clients',

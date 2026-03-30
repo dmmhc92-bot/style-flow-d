@@ -225,8 +225,8 @@ export default function SubscriptionScreen() {
     );
   }
 
-  // Display price from RevenueCat or fallback
-  const displayPrice = price || 'Loading...';
+  // Display price from RevenueCat or fallback to configured price
+  const displayPrice = price || '$12.99';
   const displayPeriod = period || 'month';
 
   return (
