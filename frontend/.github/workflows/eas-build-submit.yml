@@ -23,9 +23,13 @@ on:
         default: true
         type: boolean
 
+env:
+  # StyleFlow Project Only - Do NOT use for other projects
+  EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
 jobs:
   build-and-submit:
-    name: Build and Submit to TestFlight
+    name: Build StyleFlow and Submit to TestFlight
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -34,6 +38,15 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Verify StyleFlow Project
+        run: |
+          BUNDLE_ID=$(cat app.json | jq -r '.expo.ios.bundleIdentifier')
+          if [ "$BUNDLE_ID" != "com.styleflow.app" ]; then
+            echo "ERROR: This workflow is for StyleFlow only (com.styleflow.app)"
+            exit 1
+          fi
+          echo "✅ Confirmed StyleFlow project: $BUNDLE_ID"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

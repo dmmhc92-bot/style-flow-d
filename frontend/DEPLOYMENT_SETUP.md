@@ -1,5 +1,8 @@
 # StyleFlow - Automated Apple Deployment Setup
 
+⚠️ **PROJECT SCOPE**: This configuration is for **StyleFlow ONLY** (com.styleflow.app)
+Do NOT use these credentials for AgentRouteAI or any other project.
+
 ## App Store Connect Configuration
 
 | Setting | Value |
@@ -18,8 +21,8 @@ Add these secrets to your GitHub repository (`dmmhc92-bot/style-flow-d`):
 
 | Secret Name | Value |
 |-------------|-------|
-| `EXPO_TOKEN` | Your Expo access token (get from expo.dev → Account Settings → Access Tokens) |
-| `APPLE_API_KEY_P8` | The full contents of your .p8 key file (including BEGIN/END lines) |
+| `EXPO_TOKEN` | `SzgHQ1XsrkiHt-jWFpYD2v20Oj22kXnJzj_QGMmp` |
+| `APPLE_API_KEY_P8` | The full contents of your .p8 key file (see below) |
 
 ### APPLE_API_KEY_P8 Value:
 ```
@@ -38,14 +41,18 @@ These are already configured in the project:
 - **Issuer ID**: `e05d02ae-8a38-478e-a195-ffe1d868ef44`
 - **Key Path**: `./keys/AuthKey_7H48ZU4AD2.p8`
 
-## How to Get EXPO_TOKEN
+## System Separation Verification
 
-1. Go to https://expo.dev
-2. Sign in to your account
-3. Click your profile icon → Account Settings
-4. Go to "Access Tokens"
-5. Click "Create Token"
-6. Name it "GitHub Actions" and copy the token
+The workflow includes a verification step that checks:
+```yaml
+- name: Verify StyleFlow Project
+  run: |
+    BUNDLE_ID=$(cat app.json | jq -r '.expo.ios.bundleIdentifier')
+    if [ "$BUNDLE_ID" != "com.styleflow.app" ]; then
+      echo "ERROR: This workflow is for StyleFlow only"
+      exit 1
+    fi
+```
 
 ## Workflow Triggers
 
@@ -60,8 +67,8 @@ If you prefer to run builds manually:
 ```bash
 cd frontend
 
-# Login to EAS
-npx eas login
+# Login to EAS with StyleFlow token
+EXPO_TOKEN=SzgHQ1XsrkiHt-jWFpYD2v20Oj22kXnJzj_QGMmp npx eas whoami
 
 # Build for TestFlight
 npx eas build --profile testflight --platform ios
@@ -72,7 +79,7 @@ npx eas submit --profile testflight --platform ios --latest
 
 ## Files Created/Modified
 
-- `/.github/workflows/eas-build-submit.yml` - GitHub Actions workflow
+- `/.github/workflows/eas-build-submit.yml` - GitHub Actions workflow (StyleFlow-specific)
 - `/keys/AuthKey_7H48ZU4AD2.p8` - Apple API key (local only, gitignored)
 - `/eas.json` - Updated with complete API key configuration for build & submit
 
