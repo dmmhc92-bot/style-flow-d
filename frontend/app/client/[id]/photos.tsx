@@ -74,14 +74,34 @@ export default function ClientPhotosScreen() {
 
     if (!result.canceled && result.assets[0].base64) {
       setUploading(true);
+      const imageData = `data:image/jpeg;base64,${result.assets[0].base64}`;
+      
+      // Immediately add to UI for instant feedback
+      const tempId = `temp_${Date.now()}`;
+      const tempPhoto: GalleryItem = {
+        id: tempId,
+        image: imageData,
+        description: `Photo for ${client?.name}`,
+        created_at: new Date().toISOString(),
+      };
+      setPhotos(prev => [tempPhoto, ...prev]);
+      
       try {
-        await api.post('/gallery', {
+        const response = await api.post('/gallery', {
           client_id: id,
-          image: `data:image/jpeg;base64,${result.assets[0].base64}`,
+          image: imageData,
           description: `Photo for ${client?.name}`,
         });
-        loadData();
+        
+        // Update temp item with real ID
+        setPhotos(prev => prev.map(p => 
+          p.id === tempId ? { ...p, id: response.data.id } : p
+        ));
+        
+        Alert.alert('Success', 'Photo added successfully!');
       } catch (error: any) {
+        // Remove temp item on failure
+        setPhotos(prev => prev.filter(p => p.id !== tempId));
         Alert.alert('Error', error.response?.data?.detail || 'Failed to upload photo');
       } finally {
         setUploading(false);
@@ -99,10 +119,15 @@ export default function ClientPhotosScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
+            // Immediately remove from UI
+            setPhotos(prev => prev.filter(p => p.id !== photo.id));
+            
             try {
               await api.delete(`/gallery/${photo.id}`);
-              loadData();
+              Alert.alert('Deleted', 'Photo removed successfully');
             } catch (error) {
+              // Restore on failure
+              setPhotos(prev => [photo, ...prev]);
               Alert.alert('Error', 'Failed to delete photo');
             }
           },

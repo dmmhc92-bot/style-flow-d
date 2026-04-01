@@ -182,10 +182,15 @@ export default function FormulaVaultScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
+            // Immediately remove from UI for instant feedback
+            setFormulas(prev => prev.filter(f => f.id !== formula.id));
+            
             try {
               await api.delete(`/formulas/${formula.id}`);
-              loadData();
+              Alert.alert('Deleted', 'Formula removed successfully');
             } catch (error) {
+              // Restore on failure
+              setFormulas(prev => [formula, ...prev]);
               Alert.alert('Error', 'Failed to delete formula');
             }
           },
