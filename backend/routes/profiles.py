@@ -40,6 +40,33 @@ MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024  # 5MB limit for ultimate speed
 ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png']
 ALLOWED_EXTENSIONS = ['.jpg', '.jpeg', '.png']
 
+# ==================== BASIC PROFILE ENDPOINTS ====================
+
+@router.get("/me")
+async def get_my_profile(current_user: dict = Depends(get_current_user)):
+    """Get current user's basic profile information"""
+    user_id = str(current_user["_id"])
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {
+        "id": str(user["_id"]),
+        "email": user.get("email"),
+        "full_name": user.get("full_name"),
+        "business_name": user.get("business_name"),
+        "bio": user.get("bio"),
+        "profile_photo": user.get("profile_photo"),
+        "city": user.get("city"),
+        "specialties": user.get("specialties"),
+        "social_links": user.get("social_links", {}),
+        "subscription_status": user.get("subscription_status"),
+        "is_tester": user.get("is_tester", False),
+        "is_admin": user.get("is_admin", False),
+        "created_at": user.get("created_at"),
+    }
+
 # Cloudinary Production Settings
 CLOUDINARY_FOLDER = getattr(settings, 'CLOUDINARY_ASSET_FOLDER', 'styleflow_uploads')
 CLOUDINARY_UPLOAD_PRESET = getattr(settings, 'CLOUDINARY_UPLOAD_PRESET', 'Emergent')
