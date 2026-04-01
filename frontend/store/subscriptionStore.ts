@@ -9,13 +9,23 @@ import Purchases, {
 } from 'react-native-purchases';
 import { storage } from '../utils/storage';
 import api from '../utils/api';
-import { useAuthStore } from './authStore';
 
 // RevenueCat API key from environment
 const REVENUECAT_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_KEY || '';
 
 // Entitlement identifier configured in RevenueCat dashboard
 const PREMIUM_ENTITLEMENT = 'premium';
+
+// Helper to get auth state without circular import
+const getAuthState = () => {
+  try {
+    // Dynamic import to avoid circular dependency
+    const { useAuthStore } = require('./authStore');
+    return useAuthStore.getState();
+  } catch {
+    return null;
+  }
+};
 
 interface SubscriptionState {
   isConfigured: boolean;
@@ -115,8 +125,8 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
   checkSubscriptionStatus: async () => {
     try {
       // TESTER BYPASS: Check if user is a tester - bypass paywall
-      const authStore = useAuthStore.getState();
-      if (authStore.user?.is_tester || authStore.user?.subscription_status === 'active') {
+      const authState = getAuthState();
+      if (authState?.user?.is_tester || authState?.user?.subscription_status === 'active') {
         console.log('Tester/Active subscription bypass - granting premium access');
         set({ isPremium: true });
         return true;
@@ -146,8 +156,8 @@ export const useSubscriptionStore = create<SubscriptionState>((set, get) => ({
       return isPremium;
     } catch (error: any) {
       // If RevenueCat fails, check if user is tester/has active status from backend
-      const authStore = useAuthStore.getState();
-      if (authStore.user?.is_tester || authStore.user?.subscription_status === 'active') {
+      const authState = getAuthState();
+      if (authState?.user?.is_tester || authState?.user?.subscription_status === 'active') {
         console.log('RevenueCat error but tester/active - granting premium access');
         set({ isPremium: true });
         return true;

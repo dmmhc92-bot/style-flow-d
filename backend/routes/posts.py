@@ -2,12 +2,65 @@ from fastapi import APIRouter, Depends, HTTPException
 from typing import List, Optional
 from datetime import datetime, timedelta
 from bson import ObjectId
+import cloudinary
+import cloudinary.uploader
+import base64
+import logging
 
 from core.database import db
 from core.dependencies import get_current_user
+from core.config import settings
 from models.post import PostCreate, PostUpdate, CommentCreate, ShareCreate, TREND_TAGS
 
 router = APIRouter(tags=["Posts"])
+
+# Configure Cloudinary
+CLOUDINARY_FOLDER = getattr(settings, 'CLOUDINARY_ASSET_FOLDER', 'styleflow_uploads')
+cloudinary.config(
+    cloud_name=getattr(settings, 'CLOUDINARY_CLOUD_NAME', ''),
+    api_key=getattr(settings, 'CLOUDINARY_API_KEY', ''),
+    api_secret=getattr(settings, 'CLOUDINARY_API_SECRET', '')
+)
+
+# ==================== IMAGE UPLOAD ====================
+
+@router.post("/posts/upload-image")
+async def upload_post_image(
+    data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Upload a single image for a post and return the URL"""
+    try:
+        image_data = data.get("image")
+        if not image_data:
+            raise HTTPException(status_code=400, detail="Image data is required")
+        
+        user_id = str(current_user["_id"])
+        
+        # Check if Cloudinary is configured
+        cloudinary_configured = bool(getattr(settings, 'CLOUDINARY_API_KEY', ''))
+        
+        if cloudinary_configured:
+            # Upload to Cloudinary
+            upload_result = cloudinary.uploader.upload(
+                image_data,
+                folder=f"{CLOUDINARY_FOLDER}/posts/{user_id}",
+                resource_type="image",
+                transformation=[
+                    {"width": 1080, "height": 1080, "crop": "limit"},
+                    {"quality": "auto:good"},
+                    {"fetch_format": "auto"}
+                ]
+            )
+            image_url = upload_result.get("secure_url")
+        else:
+            # If no Cloudinary, accept the base64 directly (dev mode)
+            image_url = image_data
+        
+        return {"url": image_url}
+    except Exception as e:
+        logging.error(f"Post image upload failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
 
 # ==================== POSTS & ENGAGEMENT SYSTEM ====================
 

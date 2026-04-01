@@ -85,16 +85,36 @@ export default function CreatePostScreen() {
 
     setLoading(true);
     try {
+      // Upload images first to get URLs
+      const uploadedUrls: string[] = [];
+      
+      for (const image of images) {
+        try {
+          const uploadResponse = await api.post('/posts/upload-image', { image });
+          if (uploadResponse.data?.url) {
+            uploadedUrls.push(uploadResponse.data.url);
+          } else {
+            // If upload endpoint doesn't return URL, use original (base64 or URL)
+            uploadedUrls.push(image);
+          }
+        } catch (uploadError) {
+          // Fallback to original image if upload fails
+          console.warn('Image upload failed, using original:', uploadError);
+          uploadedUrls.push(image);
+        }
+      }
+
+      // Create post with uploaded URLs
       await api.post('/posts', {
-        images,
+        images: uploadedUrls,
         caption: caption.trim() || undefined,
         tags: selectedTags,
       });
 
-      Alert.alert('Success', 'Your post has been shared!', [
-        { text: 'OK', onPress: () => router.back() }
-      ]);
+      // Navigate to feed after successful post
+      router.replace('/tabs/feed');
     } catch (error: any) {
+      console.error('Post creation error:', error);
       Alert.alert('Error', error.response?.data?.detail || 'Failed to create post');
     } finally {
       setLoading(false);
