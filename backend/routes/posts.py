@@ -838,8 +838,7 @@ REPORT_REASONS = [
 @router.post("/posts/{post_id}/report")
 async def report_post(
     post_id: str, 
-    reason: str,
-    details: Optional[str] = None,
+    report_data: dict,
     current_user: dict = Depends(get_current_user)
 ):
     """
@@ -847,6 +846,12 @@ async def report_post(
     Triggers the automated Strike Engine for threshold-based enforcement.
     """
     from core.strike_engine import StrikeEngine
+    
+    reason = report_data.get("reason")
+    details = report_data.get("details")
+    
+    if not reason:
+        raise HTTPException(status_code=400, detail="Reason is required")
     
     reporter_id = str(current_user["_id"])
     
