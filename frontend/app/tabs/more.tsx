@@ -16,10 +16,34 @@ import Colors from '../../constants/Colors';
 import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
 import { useAuthStore } from '../../store/authStore';
+import { LEGAL_URLS, SUPPORT_EMAIL } from '../../constants/LegalUrls';
 
 export default function MoreScreen() {
   const router = useRouter();
   const { user, logout, deleteAccount } = useAuthStore();
+  
+  // Open external legal URLs
+  const openPrivacyPolicy = async () => {
+    try {
+      await Linking.openURL(LEGAL_URLS.PRIVACY_POLICY);
+    } catch (error) {
+      // Fallback to in-app screen if external URL fails
+      router.push('/privacy');
+    }
+  };
+  
+  const openTermsOfService = async () => {
+    try {
+      await Linking.openURL(LEGAL_URLS.TERMS_OF_SERVICE);
+    } catch (error) {
+      // Fallback to in-app screen if external URL fails
+      router.push('/terms');
+    }
+  };
+  
+  const openSupportEmail = () => {
+    Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=StyleFlow Support Request`);
+  };
   
   const handleLogout = () => {
     Alert.alert(
@@ -203,19 +227,19 @@ export default function MoreScreen() {
             <MenuItem
               icon="mail"
               title="Contact Us"
-              onPress={() => Linking.openURL('mailto:styleflowsupport@gmail.com')}
+              onPress={openSupportEmail}
             />
             <View style={styles.divider} />
             <MenuItem
               icon="shield-checkmark"
               title="Privacy Policy"
-              onPress={() => router.push('/privacy')}
+              onPress={openPrivacyPolicy}
             />
             <View style={styles.divider} />
             <MenuItem
               icon="document-text"
               title="Terms of Service"
-              onPress={() => router.push('/terms')}
+              onPress={openTermsOfService}
             />
           </Card>
         </View>
