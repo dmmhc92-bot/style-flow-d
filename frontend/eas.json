@@ -33,7 +33,9 @@
       "distribution": "store",
       "autoIncrement": true,
       "env": {
-        "APP_ENV": "production"
+        "APP_ENV": "production",
+        "EXPO_PUBLIC_BACKEND_URL": "https://homestyleflowapp.com",
+        "EXPO_PUBLIC_APP_DOMAIN": "homestyleflowapp.com"
       },
       "ios": {
         "simulator": false,
@@ -44,7 +46,9 @@
       "distribution": "store",
       "autoIncrement": true,
       "env": {
-        "APP_ENV": "production"
+        "APP_ENV": "production",
+        "EXPO_PUBLIC_BACKEND_URL": "https://homestyleflowapp.com",
+        "EXPO_PUBLIC_APP_DOMAIN": "homestyleflowapp.com"
       },
       "ios": {
         "simulator": false,
