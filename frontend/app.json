@@ -34,7 +34,8 @@
       "entitlements": {
         "com.apple.developer.in-app-payments": [
           "merchant.com.styleflow.app"
-        ]
+        ],
+        "com.apple.developer.in-app-purchase": true
       },
       "config": {
         "usesNonExemptEncryption": false
