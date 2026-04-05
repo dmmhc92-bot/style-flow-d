@@ -52,7 +52,7 @@ New users receive 3 free premium actions (creating clients, formulas, appointmen
 
 ### 4.2 Subscription Terms
 
-- **Monthly Subscription:** $9.99 USD per month
+- **Monthly Subscription:** $12.99 USD per month
 - Subscriptions are billed through your Apple App Store account
 - Subscriptions automatically renew unless cancelled at least 24 hours before the end of the current period
 - Your account will be charged for renewal within 24 hours prior to the end of the current period

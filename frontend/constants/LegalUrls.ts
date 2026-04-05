@@ -1,11 +1,8 @@
 // Legal document URLs - hosted on GitHub
-// After pushing to GitHub, these will be the raw URLs to your legal documents
+// StyleFlow App - DO NOT MIX WITH OTHER PROJECTS
 
-// Replace YOUR_GITHUB_USERNAME with your actual GitHub username
-// Replace YOUR_REPO_NAME with your repository name (e.g., 'styleflow-app' or 'styleflow-legal')
-
-const GITHUB_USERNAME = 'styleflow-app';
-const GITHUB_REPO = 'styleflow-legal';
+const GITHUB_USERNAME = 'dmmhc92-bot';
+const GITHUB_REPO = 'style-flow-d';
 const GITHUB_BRANCH = 'main';
 
 // Raw GitHub URLs for markdown files

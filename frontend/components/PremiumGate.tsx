@@ -173,7 +173,7 @@ export const TrialGate: React.FC<TrialGateProps> = ({ children, onTrialExpired }
             style={styles.upgradeButton}
             onPress={() => router.push('/settings/subscription')}
           >
-            <Text style={styles.upgradeButtonText}>Subscribe Now - $9.99/mo</Text>
+            <Text style={styles.upgradeButtonText}>Subscribe Now - $12.99/mo</Text>
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.backButton}
@@ -284,7 +284,7 @@ export const useTrialAction = (actionType: 'clientsCreated' | 'formulasCreated' 
               router.push('/settings/subscription');
             }}
           >
-            <Text style={styles.subscribeButtonText}>Subscribe Now - $9.99/mo</Text>
+            <Text style={styles.subscribeButtonText}>Subscribe Now - $12.99/mo</Text>
           </TouchableOpacity>
           
           <Text style={styles.trialNote}>
