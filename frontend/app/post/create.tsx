@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,8 @@ import Colors from '../../constants/Colors';
 import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
 import api from '../../utils/api';
+import { useTrialAction, TrialBadge } from '../../components/PremiumGate';
+import { useTrialStore } from '../../store/trialStore';
 
 const TREND_TAGS = [
   'balayage', 'colortrend', 'transformation', 'mensstyle', 'curlyhair',
@@ -31,6 +33,16 @@ const TREND_TAGS = [
 
 export default function CreatePostScreen() {
   const router = useRouter();
+  
+  // Trial system integration
+  const { canPerformAction, performAction, remainingUses, isPremium, PaywallModal } = useTrialAction('postsCreated');
+  const { loadUsage } = useTrialStore();
+  
+  // Load trial usage on mount
+  useEffect(() => {
+    loadUsage();
+  }, []);
+  
   const [images, setImages] = useState<string[]>([]);
   const [caption, setCaption] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -83,8 +95,16 @@ export default function CreatePostScreen() {
       return;
     }
 
+    // Check trial/subscription status before creating
+    if (!canPerformAction) {
+      return;
+    }
+
     setLoading(true);
     try {
+      // Track this as a premium action
+      await performAction();
+      
       // Upload images first to get URLs
       const uploadedUrls: string[] = [];
       
@@ -94,11 +114,9 @@ export default function CreatePostScreen() {
           if (uploadResponse.data?.url) {
             uploadedUrls.push(uploadResponse.data.url);
           } else {
-            // If upload endpoint doesn't return URL, use original (base64 or URL)
             uploadedUrls.push(image);
           }
         } catch (uploadError) {
-          // Fallback to original image if upload fails
           console.warn('Image upload failed, using original:', uploadError);
           uploadedUrls.push(image);
         }
@@ -249,6 +267,14 @@ export default function CreatePostScreen() {
             )}
           </View>
 
+          {/* Trial Info */}
+          {!isPremium && remainingUses > 0 && (
+            <View style={styles.trialInfo}>
+              <TrialBadge />
+              <Text style={styles.trialText}>{remainingUses} free post{remainingUses !== 1 ? 's' : ''} remaining</Text>
+            </View>
+          )}
+
           {/* Tips */}
           <View style={styles.tipsSection}>
             <Ionicons name="bulb-outline" size={20} color={Colors.accent} />
@@ -258,6 +284,9 @@ export default function CreatePostScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      
+      {/* Paywall Modal */}
+      <PaywallModal />
     </SafeAreaView>
   );
 }
@@ -445,6 +474,21 @@ const styles = StyleSheet.create({
   tagOptionTextSelected: {
     color: Colors.accent,
     fontWeight: Typography.medium,
+  },
+  trialInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: Spacing.screenPadding,
+    marginBottom: Spacing.md,
+    padding: Spacing.sm,
+    backgroundColor: Colors.accent + '10',
+    borderRadius: Spacing.radiusMedium,
+    gap: Spacing.xs,
+  },
+  trialText: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
   },
   tipsSection: {
     flexDirection: 'row',

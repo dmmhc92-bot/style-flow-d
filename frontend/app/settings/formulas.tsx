@@ -21,6 +21,8 @@ import Colors from '../../constants/Colors';
 import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
 import api from '../../utils/api';
+import { useTrialAction, TrialBadge } from '../../components/PremiumGate';
+import { useTrialStore } from '../../store/trialStore';
 
 interface Formula {
   id: string;
@@ -38,6 +40,11 @@ interface Client {
 
 export default function FormulaVaultScreen() {
   const router = useRouter();
+  
+  // Trial system integration
+  const { canPerformAction, performAction, remainingUses, isPremium, PaywallModal } = useTrialAction('formulasCreated');
+  const { loadUsage } = useTrialStore();
+  
   const [formulas, setFormulas] = useState<Formula[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,6 +62,11 @@ export default function FormulaVaultScreen() {
   const [formulaName, setFormulaName] = useState('');
   const [formulaDetails, setFormulaDetails] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Load trial usage on mount
+  useEffect(() => {
+    loadUsage();
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
@@ -127,6 +139,11 @@ export default function FormulaVaultScreen() {
       return;
     }
 
+    // Check trial/subscription status for new formulas only
+    if (!editingFormula && !canPerformAction) {
+      return;
+    }
+
     setSaving(true);
     try {
       if (editingFormula) {
@@ -148,6 +165,9 @@ export default function FormulaVaultScreen() {
         
         Alert.alert('Success', 'Formula updated!');
       } else {
+        // Track this as a premium action for new formulas
+        await performAction();
+        
         // Create new formula - use returned data for instant UI sync
         const response = await api.post('/formulas', {
           client_id: selectedClient.id,
@@ -533,6 +553,9 @@ export default function FormulaVaultScreen() {
       </Modal>
 
       {renderClientPicker()}
+      
+      {/* Paywall Modal */}
+      <PaywallModal />
     </SafeAreaView>
   );
 }

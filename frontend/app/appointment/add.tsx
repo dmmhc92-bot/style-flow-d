@@ -20,10 +20,21 @@ import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
 import api from '../../utils/api';
 import { format } from 'date-fns';
+import { useTrialAction, TrialBadge } from '../../components/PremiumGate';
+import { useTrialStore } from '../../store/trialStore';
 
 export default function AddAppointmentScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  
+  // Trial system integration
+  const { canPerformAction, performAction, remainingUses, isPremium, PaywallModal } = useTrialAction('appointmentsCreated');
+  const { loadUsage } = useTrialStore();
+  
+  // Load trial usage on mount
+  useEffect(() => {
+    loadUsage();
+  }, []);
   
   const [clients, setClients] = useState([]);
   const [selectedClient, setSelectedClient] = useState('');
@@ -79,8 +90,16 @@ export default function AddAppointmentScreen() {
   const handleSave = async () => {
     if (!validateForm()) return;
     
+    // Check trial/subscription status before creating
+    if (!canPerformAction) {
+      return;
+    }
+    
     setLoading(true);
     try {
+      // Track this as a premium action
+      await performAction();
+      
       const appointmentDateTime = new Date(`${selectedDate}T${selectedTime}:00`);
       
       await api.post('/appointments', {
@@ -101,7 +120,6 @@ export default function AddAppointmentScreen() {
           text: 'Add Another',
           style: 'cancel',
           onPress: () => {
-            // Reset form for another appointment
             setSelectedClient('');
             setSelectedDate('');
             setSelectedTime('');
@@ -278,8 +296,19 @@ export default function AddAppointmentScreen() {
             loading={loading}
             style={styles.saveButton}
           />
+          
+          {/* Show remaining trial uses */}
+          {!isPremium && remainingUses > 0 && (
+            <View style={styles.trialInfo}>
+              <TrialBadge />
+              <Text style={styles.trialText}>{remainingUses} free appointment{remainingUses !== 1 ? 's' : ''} remaining</Text>
+            </View>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
+      
+      {/* Paywall Modal */}
+      <PaywallModal />
     </SafeAreaView>
   );
 }
@@ -409,5 +438,19 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     marginTop: Spacing.md,
+  },
+  trialInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: Spacing.md,
+    padding: Spacing.sm,
+    backgroundColor: Colors.accent + '10',
+    borderRadius: Spacing.radiusMedium,
+    gap: Spacing.xs,
+  },
+  trialText: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
   },
 });
