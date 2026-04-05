@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -19,9 +19,20 @@ import Colors from '../../constants/Colors';
 import Spacing from '../../constants/Spacing';
 import Typography from '../../constants/Typography';
 import api from '../../utils/api';
+import { useTrialAction, TrialBadge } from '../../components/PremiumGate';
+import { useTrialStore } from '../../store/trialStore';
 
 export default function AddClientScreen() {
   const router = useRouter();
+  
+  // Trial system integration
+  const { canPerformAction, performAction, remainingUses, isPremium, PaywallModal } = useTrialAction('clientsCreated');
+  const { loadUsage } = useTrialStore();
+  
+  // Load trial usage on mount
+  useEffect(() => {
+    loadUsage();
+  }, []);
   
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -73,8 +84,17 @@ export default function AddClientScreen() {
   const handleSave = async () => {
     if (!validateForm()) return;
     
+    // Check trial/subscription status before creating
+    if (!canPerformAction) {
+      // Paywall will be shown automatically
+      return;
+    }
+    
     setLoading(true);
     try {
+      // Track this as a premium action (increment trial usage)
+      await performAction();
+      
       const response = await api.post('/clients', {
         name: name.trim(),
         email: email.trim() || null,
@@ -207,8 +227,19 @@ export default function AddClientScreen() {
             loading={loading}
             style={styles.saveButton}
           />
+          
+          {/* Show remaining trial uses */}
+          {!isPremium && remainingUses > 0 && (
+            <View style={styles.trialInfo}>
+              <TrialBadge />
+              <Text style={styles.trialText}>{remainingUses} free client{remainingUses !== 1 ? 's' : ''} remaining</Text>
+            </View>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
+      
+      {/* Paywall Modal */}
+      <PaywallModal />
     </SafeAreaView>
   );
 }
@@ -314,5 +345,19 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     marginTop: Spacing.md,
+  },
+  trialInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: Spacing.md,
+    padding: Spacing.sm,
+    backgroundColor: Colors.accent + '10',
+    borderRadius: Spacing.radiusMedium,
+    gap: Spacing.xs,
+  },
+  trialText: {
+    fontSize: Typography.bodySmall,
+    color: Colors.textSecondary,
   },
 });
