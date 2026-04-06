@@ -57,11 +57,8 @@ jobs:
           echo "${{ secrets.APPLE_API_KEY_P8 }}" > keys/AuthKey_7H48ZU4AD2.p8
           chmod 600 keys/AuthKey_7H48ZU4AD2.p8
 
-      - name: Build iOS
-        run: eas build --profile testflight --platform ios --non-interactive --no-wait
-
-      - name: Get Build Status
-        run: eas build:list --platform ios --limit 1 --non-interactive
+      - name: Build iOS (Fresh - Clear Cache)
+        run: eas build --profile testflight --platform ios --non-interactive --clear-cache
 
       - name: Submit to TestFlight
         if: ${{ github.event.inputs.submit == 'true' || github.event_name == 'push' }}
