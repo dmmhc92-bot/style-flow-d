@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'frontend/**'
   workflow_dispatch:
     inputs:
       platform:
@@ -20,56 +18,32 @@ on:
       submit:
         description: 'Submit to store after build'
         required: true
-        default: true
+        default: 'true'
         type: boolean
-
-env:
-  # StyleFlow Project Only - Do NOT use for other projects
-  EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-  
-  # Apple Developer Portal credentials for automatic certificate/profile management
-  # These allow EAS to create and manage signing credentials automatically
-  EXPO_APPLE_ID: ${{ secrets.EXPO_APPLE_ID }}
-  EXPO_APPLE_PASSWORD: ${{ secrets.EXPO_APPLE_PASSWORD }}
-  EXPO_APPLE_TEAM_ID: NTZB3ZFKXK
-  
-  # App Store Connect API Key (for submission)
-  EXPO_ASC_API_KEY_PATH: ./frontend/keys/AuthKey_7H48ZU4AD2.p8
-  EXPO_ASC_API_KEY_ISSUER_ID: e05d02ae-8a38-478e-a195-ffe1d868ef44
-  EXPO_ASC_API_KEY_ID: 7H48ZU4AD2
 
 jobs:
   build-and-submit:
-    name: Build StyleFlow and Submit to TestFlight
+    name: Build StyleFlow iOS
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
-    
+    env:
+      EXPO_APPLE_ID: ${{ secrets.EXPO_APPLE_ID }}
+      EXPO_APPLE_PASSWORD: ${{ secrets.EXPO_APPLE_PASSWORD }}
+      EXPO_APPLE_TEAM_ID: NTZB3ZFKXK
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Verify StyleFlow Project
-        run: |
-          BUNDLE_ID=$(cat app.json | jq -r '.expo.ios.bundleIdentifier')
-          if [ "$BUNDLE_ID" != "com.styleflow.app" ]; then
-            echo "ERROR: This workflow is for StyleFlow only (com.styleflow.app)"
-            exit 1
-          fi
-          echo "✅ Confirmed StyleFlow project: $BUNDLE_ID"
-          echo "✅ Apple Team ID: NTZB3ZFKXK"
-          echo "✅ App Store App ID: 6761026979"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'yarn'
-          cache-dependency-path: frontend/yarn.lock
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: npm install
 
       - name: Setup Expo
         uses: expo/expo-github-action@v8
@@ -77,88 +51,19 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Create App Store Connect API Key file
+      - name: Create App Store Connect API Key
         run: |
           mkdir -p keys
           echo "${{ secrets.APPLE_API_KEY_P8 }}" > keys/AuthKey_7H48ZU4AD2.p8
           chmod 600 keys/AuthKey_7H48ZU4AD2.p8
-          echo "✅ API Key file created"
 
-      - name: Configure EAS Credentials (Auto-manage)
-        run: |
-          echo "Configuring EAS to auto-manage iOS signing credentials..."
-          echo "Bundle ID: com.styleflow.app"
-          echo "Team ID: NTZB3ZFKXK"
-          # EAS will use EXPO_APPLE_ID and EXPO_APPLE_PASSWORD to access Apple Developer Portal
-          # and automatically create/manage distribution certificates and provisioning profiles
-
-      - name: Build iOS for TestFlight
-        if: github.event.inputs.platform == 'ios' || github.event.inputs.platform == 'all' || github.event_name == 'push'
-        run: |
-          echo "🚀 Starting iOS build for StyleFlow..."
-          echo "Profile: testflight"
-          echo "Distribution: store"
-          echo "Credentials: remote (auto-managed by EAS)"
-          eas build --profile testflight --platform ios --non-interactive --no-wait
-        env:
-          EXPO_APPLE_ID: ${{ secrets.EXPO_APPLE_ID }}
-          EXPO_APPLE_PASSWORD: ${{ secrets.EXPO_APPLE_PASSWORD }}
-          EXPO_APPLE_TEAM_ID: NTZB3ZFKXK
-
-      - name: Wait for Build Completion
-        if: (github.event.inputs.platform == 'ios' || github.event.inputs.platform == 'all' || github.event_name == 'push')
-        run: |
-          echo "⏳ Waiting for build to complete..."
-          # Get the latest build and wait for it
-          BUILD_ID=$(eas build:list --platform ios --limit 1 --json --non-interactive | jq -r '.[0].id')
-          echo "Build ID: $BUILD_ID"
-          
-          # Poll for build status
-          while true; do
-            STATUS=$(eas build:view $BUILD_ID --json --non-interactive | jq -r '.status')
-            echo "Current status: $STATUS"
-            
-            if [ "$STATUS" == "finished" ]; then
-              echo "✅ Build completed successfully!"
-              break
-            elif [ "$STATUS" == "errored" ] || [ "$STATUS" == "canceled" ]; then
-              echo "❌ Build failed with status: $STATUS"
-              eas build:view $BUILD_ID --non-interactive
-              exit 1
-            fi
-            
-            echo "Waiting 60 seconds..."
-            sleep 60
-          done
+      - name: Build iOS
+        run: eas build --profile testflight --platform ios --non-interactive
 
       - name: Submit to TestFlight
-        if: (github.event.inputs.submit == 'true' || github.event_name == 'push')
-        run: |
-          echo "📤 Submitting to TestFlight..."
-          eas submit --profile testflight --platform ios --latest --non-interactive
+        if: ${{ github.event.inputs.submit == 'true' || github.event_name == 'push' }}
+        run: eas submit --profile testflight --platform ios --latest --non-interactive
         env:
           EXPO_ASC_API_KEY_PATH: ./keys/AuthKey_7H48ZU4AD2.p8
           EXPO_ASC_API_KEY_ISSUER_ID: e05d02ae-8a38-478e-a195-ffe1d868ef44
           EXPO_ASC_API_KEY_ID: 7H48ZU4AD2
-
-      - name: Build Android (if selected)
-        if: github.event.inputs.platform == 'android' || github.event.inputs.platform == 'all'
-        run: |
-          eas build --profile production --platform android --non-interactive
-
-      - name: Build Summary
-        if: always()
-        run: |
-          echo "============================================="
-          echo "StyleFlow Build Summary"
-          echo "============================================="
-          echo "Bundle ID: com.styleflow.app"
-          echo "Apple Team ID: NTZB3ZFKXK"
-          echo "App Store App ID: 6761026979"
-          echo ""
-          echo "Check build status at:"
-          echo "https://expo.dev/accounts/dmmhc92/projects/styleflow/builds"
-          echo ""
-          echo "Check TestFlight at:"
-          echo "https://appstoreconnect.apple.com/apps/6761026979/testflight"
-          echo "============================================="

@@ -31,8 +31,6 @@
         "applinks:homestyleflowapp.com",
         "webcredentials:homestyleflowapp.com"
       ],
-        "com.apple.developer.in-app-purchase": true
-      },
       "config": {
         "usesNonExemptEncryption": false
       },
@@ -68,16 +66,24 @@
           }
         ]
       },
-      "appStoreUrl": "https://apps.apple.com/app/styleflow/id6761026979"
+      "splash": {
+        "image": "./assets/images/splash-icon.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#1A1A1A"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#2D2D2D"
+        "backgroundColor": "#1A1A1A"
       },
-      "edgeToEdgeEnabled": true,
       "package": "com.styleflow.app",
-      "versionCode": 1,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO"
+      ],
       "intentFilters": [
         {
           "action": "VIEW",
@@ -86,12 +92,7 @@
             {
               "scheme": "https",
               "host": "homestyleflowapp.com",
-              "pathPrefix": "/reset-password"
-            },
-            {
-              "scheme": "https",
-              "host": "homestyleflowapp.com",
-              "pathPrefix": "/hub"
+              "pathPrefix": "/"
             }
           ],
           "category": [
@@ -99,14 +100,6 @@
             "DEFAULT"
           ]
         }
-      ],
-      "permissions": [
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
-        "READ_MEDIA_IMAGES",
-        "INTERNET",
-        "ACCESS_NETWORK_STATE"
       ]
     },
     "web": {
@@ -116,28 +109,32 @@
     },
     "plugins": [
       "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#2D2D2D"
-        }
-      ],
+      "expo-secure-store",
+      "expo-font",
+      "expo-localization",
       [
         "expo-image-picker",
         {
-          "photosPermission": "Upload stunning client photos to your portfolio",
-          "cameraPermission": "Capture before & after transformations"
+          "photosPermission": "Allow StyleFlow to access your photos for client portfolios",
+          "cameraPermission": "Allow StyleFlow to use camera for before/after photos"
         }
       ],
       [
-        "expo-camera",
+        "expo-build-properties",
         {
-          "cameraPermission": "Capture before & after transformations"
+          "ios": {
+            "useFrameworks": "static"
+          }
         }
       ]
+    ],
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1A1A1A"
+    },
+    "assetBundlePatterns": [
+      "**/*"
     ],
     "experiments": {
       "typedRoutes": true
