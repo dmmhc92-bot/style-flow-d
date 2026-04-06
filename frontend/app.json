@@ -31,10 +31,6 @@
         "applinks:homestyleflowapp.com",
         "webcredentials:homestyleflowapp.com"
       ],
-      "entitlements": {
-        "com.apple.developer.in-app-payments": [
-          "merchant.com.styleflow.app"
-        ],
         "com.apple.developer.in-app-purchase": true
       },
       "config": {
