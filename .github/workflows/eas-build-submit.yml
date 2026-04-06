@@ -37,11 +37,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'yarn'
-          cache-dependency-path: frontend/yarn.lock
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: npm install
 
       - name: Setup Expo
         uses: expo/expo-github-action@v8
@@ -69,4 +67,3 @@ jobs:
           EXPO_ASC_API_KEY_PATH: ./keys/AuthKey_7H48ZU4AD2.p8
           EXPO_ASC_API_KEY_ISSUER_ID: e05d02ae-8a38-478e-a195-ffe1d868ef44
           EXPO_ASC_API_KEY_ID: 7H48ZU4AD2
-
