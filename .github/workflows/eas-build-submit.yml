@@ -28,6 +28,10 @@ jobs:
     defaults:
       run:
         working-directory: frontend
+    env:
+      EXPO_APPLE_ID: ${{ secrets.EXPO_APPLE_ID }}
+      EXPO_APPLE_PASSWORD: ${{ secrets.EXPO_APPLE_PASSWORD }}
+      EXPO_APPLE_TEAM_ID: NTZB3ZFKXK
 
     steps:
       - name: Checkout repository
@@ -54,11 +58,10 @@ jobs:
           chmod 600 keys/AuthKey_7H48ZU4AD2.p8
 
       - name: Build iOS
-        run: eas build --profile testflight --platform ios --non-interactive
-        env:
-          EXPO_APPLE_ID: ${{ secrets.EXPO_APPLE_ID }}
-          EXPO_APPLE_PASSWORD: ${{ secrets.EXPO_APPLE_PASSWORD }}
-          EXPO_APPLE_TEAM_ID: NTZB3ZFKXK
+        run: eas build --profile testflight --platform ios --non-interactive --no-wait
+
+      - name: Get Build Status
+        run: eas build:list --platform ios --limit 1 --non-interactive
 
       - name: Submit to TestFlight
         if: ${{ github.event.inputs.submit == 'true' || github.event_name == 'push' }}
