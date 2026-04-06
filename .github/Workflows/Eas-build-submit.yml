@@ -1,0 +1,71 @@
+name: EAS Build & Submit to TestFlight
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to build'
+        required: true
+        default: 'ios'
+        type: choice
+        options:
+          - ios
+          - android
+          - all
+      submit:
+        description: 'Submit to store after build'
+        required: true
+        default: 'true'
+        type: boolean
+
+jobs:
+  build-and-submit:
+    name: Build StyleFlow iOS
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Create App Store Connect API Key
+        run: |
+          mkdir -p keys
+          echo "${{ secrets.APPLE_API_KEY_P8 }}" > keys/AuthKey_7H48ZU4AD2.p8
+          chmod 600 keys/AuthKey_7H48ZU4AD2.p8
+
+      - name: Build iOS
+        run: eas build --profile testflight --platform ios --non-interactive
+        env:
+          EXPO_APPLE_ID: ${{ secrets.EXPO_APPLE_ID }}
+          EXPO_APPLE_PASSWORD: ${{ secrets.EXPO_APPLE_PASSWORD }}
+          EXPO_APPLE_TEAM_ID: NTZB3ZFKXK
+
+      - name: Submit to TestFlight
+        if: ${{ github.event.inputs.submit == 'true' || github.event_name == 'push' }}
+        run: eas submit --profile testflight --platform ios --latest --non-interactive
+        env:
+          EXPO_ASC_API_KEY_PATH: ./keys/AuthKey_7H48ZU4AD2.p8
+          EXPO_ASC_API_KEY_ISSUER_ID: e05d02ae-8a38-478e-a195-ffe1d868ef44
+          EXPO_ASC_API_KEY_ID: 7H48ZU4AD2
