@@ -1,6 +1,11 @@
 // Centralized app configuration
-// Legal URLs use in-app screens served by the backend
+// Legal URLs use GitHub-hosted markdown files for App Store compliance
 const APP_DOMAIN = process.env.EXPO_PUBLIC_APP_DOMAIN || 'homestyleflowapp.com';
+
+// GitHub repo for legal documents - DO NOT MIX WITH OTHER PROJECTS
+const GITHUB_USERNAME = 'dmmhc92-bot';
+const GITHUB_REPO = 'style-flow-d';
+const GITHUB_BRANCH = 'main';
 
 export const AppConfig = {
   app: {
@@ -10,11 +15,15 @@ export const AppConfig = {
   },
   
   legal: {
-    // These are in-app screens, not external URLs
+    // External GitHub URLs for App Store compliance
+    privacyPolicyUrl: `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${GITHUB_REPO}/${GITHUB_BRANCH}/privacy-policy.md`,
+    termsOfServiceUrl: `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${GITHUB_REPO}/${GITHUB_BRANCH}/terms-of-service.md`,
+    supportUrl: `mailto:styleflowsupport@gmail.com?subject=StyleFlow Support`,
+    supportEmail: 'styleflowsupport@gmail.com',
+    // In-app fallback paths
     privacyPolicyPath: '/privacy',
     termsOfServicePath: '/terms',
     supportPath: '/support',
-    supportEmail: `support@${APP_DOMAIN}`,
   },
   
   subscription: {
