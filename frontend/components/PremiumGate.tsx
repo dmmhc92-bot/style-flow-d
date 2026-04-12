@@ -288,7 +288,7 @@ export const useTrialAction = (actionType: 'clientsCreated' | 'formulasCreated' 
           </TouchableOpacity>
           
           <Text style={styles.trialNote}>
-            Cancel anytime • 7-day money back guarantee
+            Cancel anytime in Settings
           </Text>
         </View>
       </View>
