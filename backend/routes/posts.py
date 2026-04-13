@@ -174,27 +174,60 @@ async def get_posts(
     else:
         posts = await db.posts.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     
-    # Enrich posts with user info and interaction status
+    # OPTIMIZED: Batch fetch all data to avoid N+1 queries
+    if not posts:
+        return []
+    
+    # Collect all IDs needed
+    post_ids = [str(p["_id"]) for p in posts]
+    user_ids = list(set([p["user_id"] for p in posts]))
+    original_post_ids = [p["original_post_id"] for p in posts if p.get("is_shared") and p.get("original_post_id")]
+    shared_by_ids = [p["shared_by_id"] for p in posts if p.get("shared_by_id")]
+    
+    # Batch fetch all authors
+    users = await db.users.find({"_id": {"$in": [ObjectId(uid) for uid in user_ids]}}).to_list(1000)
+    users_map = {str(u["_id"]): u for u in users}
+    
+    # Batch fetch all likes for current user
+    likes = await db.post_likes.find({"post_id": {"$in": post_ids}, "user_id": current_user_id}).to_list(1000)
+    likes_set = {like["post_id"] for like in likes}
+    
+    # Batch fetch all saves for current user
+    saves = await db.post_saves.find({"post_id": {"$in": post_ids}, "user_id": current_user_id}).to_list(1000)
+    saves_set = {save["post_id"] for save in saves}
+    
+    # Batch fetch original posts for shared posts
+    original_posts_map = {}
+    if original_post_ids:
+        original_posts = await db.posts.find({"_id": {"$in": [ObjectId(oid) for oid in original_post_ids]}}).to_list(1000)
+        original_posts_map = {str(op["_id"]): op for op in original_posts}
+        # Also fetch original post authors
+        orig_user_ids = list(set([op["user_id"] for op in original_posts]))
+        if orig_user_ids:
+            orig_users = await db.users.find({"_id": {"$in": [ObjectId(uid) for uid in orig_user_ids]}}).to_list(1000)
+            for ou in orig_users:
+                users_map[str(ou["_id"])] = ou
+    
+    # Batch fetch sharers
+    if shared_by_ids:
+        sharers = await db.users.find({"_id": {"$in": [ObjectId(sid) for sid in shared_by_ids]}}).to_list(1000)
+        for s in sharers:
+            users_map[str(s["_id"])] = s
+    
+    # Build result using batched data
     result = []
     for post in posts:
-        author = await db.users.find_one({"_id": ObjectId(post["user_id"])})
-        
-        user_liked = await db.post_likes.find_one({
-            "post_id": str(post["_id"]),
-            "user_id": current_user_id
-        }) is not None
-        
-        user_saved = await db.post_saves.find_one({
-            "post_id": str(post["_id"]),
-            "user_id": current_user_id
-        }) is not None
+        post_id_str = str(post["_id"])
+        author = users_map.get(post["user_id"])
+        user_liked = post_id_str in likes_set
+        user_saved = post_id_str in saves_set
         
         # Handle shared posts
         original_author = None
         if post.get("is_shared") and post.get("original_post_id"):
-            original_post = await db.posts.find_one({"_id": ObjectId(post["original_post_id"])})
+            original_post = original_posts_map.get(post["original_post_id"])
             if original_post:
-                orig_user = await db.users.find_one({"_id": ObjectId(original_post["user_id"])})
+                orig_user = users_map.get(original_post["user_id"])
                 if orig_user:
                     original_author = {
                         "id": str(orig_user["_id"]),
@@ -204,7 +237,7 @@ async def get_posts(
         
         shared_by = None
         if post.get("shared_by_id"):
-            sharer = await db.users.find_one({"_id": ObjectId(post["shared_by_id"])})
+            sharer = users_map.get(post["shared_by_id"])
             if sharer:
                 shared_by = {
                     "id": str(sharer["_id"]),
@@ -213,7 +246,7 @@ async def get_posts(
                 }
         
         result.append({
-            "id": str(post["_id"]),
+            "id": post_id_str,
             "author": {
                 "id": str(author["_id"]) if author else None,
                 "full_name": author.get("full_name") if author else "Unknown",
@@ -282,11 +315,23 @@ async def get_saved_posts(skip: int = 0, limit: int = 20, current_user: dict = D
     saved = await db.post_saves.find({"user_id": user_id}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     post_ids = [s["post_id"] for s in saved]
     
+    if not post_ids:
+        return []
+    
+    # OPTIMIZED: Batch fetch all posts and authors
+    posts = await db.posts.find({"_id": {"$in": [ObjectId(pid) for pid in post_ids]}}).to_list(1000)
+    posts_map = {str(p["_id"]): p for p in posts}
+    
+    # Batch fetch all authors
+    user_ids = list(set([p["user_id"] for p in posts]))
+    users = await db.users.find({"_id": {"$in": [ObjectId(uid) for uid in user_ids]}}).to_list(1000)
+    users_map = {str(u["_id"]): u for u in users}
+    
     result = []
     for pid in post_ids:
-        post = await db.posts.find_one({"_id": ObjectId(pid)})
+        post = posts_map.get(pid)
         if post:
-            author = await db.users.find_one({"_id": ObjectId(post["user_id"])})
+            author = users_map.get(post["user_id"])
             result.append({
                 "id": str(post["_id"]),
                 "author": {
@@ -408,22 +453,31 @@ async def get_user_posts(user_id: str, skip: int = 0, limit: int = 20, current_u
     
     posts = await db.posts.find({"user_id": user_id}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
     
+    if not posts:
+        return []
+    
+    # OPTIMIZED: Batch fetch all data
+    post_ids = [str(p["_id"]) for p in posts]
+    
+    # Batch fetch author (single user for all posts since it's user-specific)
+    author = await db.users.find_one({"_id": ObjectId(user_id)})
+    
+    # Batch fetch all likes for current user
+    likes = await db.post_likes.find({"post_id": {"$in": post_ids}, "user_id": current_user_id}).to_list(1000)
+    likes_set = {like["post_id"] for like in likes}
+    
+    # Batch fetch all saves for current user
+    saves = await db.post_saves.find({"post_id": {"$in": post_ids}, "user_id": current_user_id}).to_list(1000)
+    saves_set = {save["post_id"] for save in saves}
+    
     result = []
     for post in posts:
-        author = await db.users.find_one({"_id": ObjectId(post["user_id"])})
-        
-        user_liked = await db.post_likes.find_one({
-            "post_id": str(post["_id"]),
-            "user_id": current_user_id
-        }) is not None
-        
-        user_saved = await db.post_saves.find_one({
-            "post_id": str(post["_id"]),
-            "user_id": current_user_id
-        }) is not None
+        post_id_str = str(post["_id"])
+        user_liked = post_id_str in likes_set
+        user_saved = post_id_str in saves_set
         
         result.append({
-            "id": str(post["_id"]),
+            "id": post_id_str,
             "author": {
                 "id": str(author["_id"]) if author else None,
                 "full_name": author.get("full_name") if author else "Unknown",
@@ -569,17 +623,29 @@ async def get_comments(post_id: str, skip: int = 0, limit: int = 50, current_use
     if pinned:
         comments.insert(0, pinned)
     
+    if not comments:
+        return []
+    
+    # OPTIMIZED: Batch fetch all commenters and likes
+    comment_ids = [str(c["_id"]) for c in comments]
+    commenter_ids = list(set([c["user_id"] for c in comments]))
+    
+    # Batch fetch all commenters
+    commenters = await db.users.find({"_id": {"$in": [ObjectId(uid) for uid in commenter_ids]}}).to_list(1000)
+    commenters_map = {str(u["_id"]): u for u in commenters}
+    
+    # Batch fetch all comment likes for current user
+    likes = await db.comment_likes.find({"comment_id": {"$in": comment_ids}, "user_id": user_id}).to_list(1000)
+    likes_set = {like["comment_id"] for like in likes}
+    
     result = []
     for comment in comments:
-        commenter = await db.users.find_one({"_id": ObjectId(comment["user_id"])})
-        
-        user_liked = await db.comment_likes.find_one({
-            "comment_id": str(comment["_id"]),
-            "user_id": user_id
-        }) is not None
+        comment_id_str = str(comment["_id"])
+        commenter = commenters_map.get(comment["user_id"])
+        user_liked = comment_id_str in likes_set
         
         result.append({
-            "id": str(comment["_id"]),
+            "id": comment_id_str,
             "text": comment.get("text"),
             "user": {
                 "id": str(commenter["_id"]) if commenter else None,
