@@ -19,7 +19,15 @@ async def discover_users(search: Optional[str] = None, current_user: dict = Depe
     blocked_me = await db.blocks.find({"blocked_id": current_user_id}).to_list(1000)
     
     blocked_ids = [b["blocked_id"] for b in blocked_by_me] + [b["blocker_id"] for b in blocked_me]
-    blocked_object_ids = [ObjectId(bid) for bid in blocked_ids if bid]
+    
+    # Safely convert to ObjectIds, skipping invalid ones
+    blocked_object_ids = []
+    for bid in blocked_ids:
+        if bid:
+            try:
+                blocked_object_ids.append(ObjectId(bid))
+            except Exception:
+                pass  # Skip invalid ObjectIds
     
     query = {
         "profile_visibility": "public",
