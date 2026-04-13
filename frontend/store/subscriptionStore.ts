@@ -14,7 +14,8 @@ import api from '../utils/api';
 const REVENUECAT_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_KEY || '';
 
 // Entitlement identifier configured in RevenueCat dashboard
-const PREMIUM_ENTITLEMENT = 'premium';
+// MUST match exactly: StyleFlow Pro
+const PREMIUM_ENTITLEMENT = 'StyleFlow Pro';
 
 // Helper to get auth state without circular import
 const getAuthState = () => {
