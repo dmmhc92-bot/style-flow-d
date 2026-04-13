@@ -15,9 +15,10 @@ export const AppConfig = {
   },
   
   legal: {
-    // External GitHub URLs for App Store compliance
-    privacyPolicyUrl: `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${GITHUB_REPO}/${GITHUB_BRANCH}/privacy-policy.md`,
-    termsOfServiceUrl: `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${GITHUB_REPO}/${GITHUB_BRANCH}/terms-of-service.md`,
+    // LIVE GitHub webpage URLs - Apple Guideline Compliant
+    // These open in browser as properly formatted webpages (not raw markdown)
+    privacyPolicyUrl: `https://github.com/${GITHUB_USERNAME}/${GITHUB_REPO}/blob/${GITHUB_BRANCH}/privacy-policy.md`,
+    termsOfServiceUrl: `https://github.com/${GITHUB_USERNAME}/${GITHUB_REPO}/blob/${GITHUB_BRANCH}/terms-of-service.md`,
     supportUrl: `mailto:styleflowsupport@gmail.com?subject=StyleFlow Support`,
     supportEmail: 'styleflowsupport@gmail.com',
     // In-app fallback paths

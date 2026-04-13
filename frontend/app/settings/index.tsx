@@ -155,13 +155,13 @@ export default function SettingsScreen() {
           <SettingsRow
             icon="document-text-outline"
             title="Privacy Policy"
-            onPress={() => router.push('/privacy')}
+            onPress={() => openUrl(AppConfig.legal.privacyPolicyUrl)}
           />
           <Divider />
           <SettingsRow
             icon="shield-checkmark-outline"
             title="Terms of Service"
-            onPress={() => router.push('/terms')}
+            onPress={() => openUrl(AppConfig.legal.termsOfServiceUrl)}
           />
         </SettingsSection>
         

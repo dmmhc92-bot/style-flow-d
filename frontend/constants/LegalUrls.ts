@@ -1,18 +1,15 @@
 // Legal document URLs - hosted on GitHub
 // StyleFlow App - DO NOT MIX WITH OTHER PROJECTS
+// Apple Guideline Compliant - Opens as formatted webpages
 
 const GITHUB_USERNAME = 'dmmhc92-bot';
 const GITHUB_REPO = 'style-flow-d';
 const GITHUB_BRANCH = 'main';
 
-// Raw GitHub URLs for markdown files
+// GitHub blob URLs - These open as FORMATTED WEBPAGES (Apple Compliant)
 export const LEGAL_URLS = {
-  PRIVACY_POLICY: `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${GITHUB_REPO}/${GITHUB_BRANCH}/privacy-policy.md`,
-  TERMS_OF_SERVICE: `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${GITHUB_REPO}/${GITHUB_BRANCH}/terms-of-service.md`,
-  
-  // GitHub Pages URLs (prettier HTML versions - if you enable GitHub Pages)
-  PRIVACY_POLICY_WEB: `https://${GITHUB_USERNAME}.github.io/${GITHUB_REPO}/privacy-policy`,
-  TERMS_OF_SERVICE_WEB: `https://${GITHUB_USERNAME}.github.io/${GITHUB_REPO}/terms-of-service`,
+  PRIVACY_POLICY: `https://github.com/${GITHUB_USERNAME}/${GITHUB_REPO}/blob/${GITHUB_BRANCH}/privacy-policy.md`,
+  TERMS_OF_SERVICE: `https://github.com/${GITHUB_USERNAME}/${GITHUB_REPO}/blob/${GITHUB_BRANCH}/terms-of-service.md`,
 };
 
 // Support email for legal inquiries
