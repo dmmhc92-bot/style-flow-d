@@ -26,7 +26,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.styleflow.app",
-      "buildNumber": "5",
+      "buildNumber": "7",
       "associatedDomains": [
         "applinks:homestyleflowapp.com",
         "webcredentials:homestyleflowapp.com"
