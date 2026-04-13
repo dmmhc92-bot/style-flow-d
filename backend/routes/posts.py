@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, timedelta
 from bson import ObjectId
@@ -13,6 +14,10 @@ from core.config import settings
 from models.post import PostCreate, PostUpdate, CommentCreate, ShareCreate, TREND_TAGS
 
 router = APIRouter(tags=["Posts"])
+
+# Comment Report model for Apple Guideline 1.2 compliance
+class CommentReportCreate(BaseModel):
+    reason: str  # spam, harassment, inappropriate
 
 # Configure Cloudinary
 CLOUDINARY_FOLDER = getattr(settings, 'CLOUDINARY_ASSET_FOLDER', 'styleflow_uploads')
@@ -670,6 +675,81 @@ async def delete_comment(comment_id: str, current_user: dict = Depends(get_curre
         )
     
     return {"message": "Comment deleted"}
+
+# ==================== COMMENT REPORTING (Apple Guideline 1.2) ====================
+
+@router.post("/comments/{comment_id}/report")
+async def report_comment(
+    comment_id: str,
+    report_data: CommentReportCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Report a comment for moderation (Apple Guideline 1.2 UGC compliance)"""
+    user_id = str(current_user["_id"])
+    
+    # Validate reason
+    valid_reasons = ["spam", "harassment", "inappropriate"]
+    if report_data.reason not in valid_reasons:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid reason. Must be one of: {', '.join(valid_reasons)}"
+        )
+    
+    # Validate ObjectId format
+    try:
+        comment_oid = ObjectId(comment_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid comment ID format")
+    
+    # Get the comment
+    comment = await db.post_comments.find_one({"_id": comment_oid})
+    if not comment:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    
+    # Cannot report own comment
+    if comment["user_id"] == user_id:
+        raise HTTPException(status_code=400, detail="Cannot report your own comment")
+    
+    # Check if already reported by this user
+    existing_report = await db.comment_reports.find_one({
+        "comment_id": comment_id,
+        "reporter_id": user_id
+    })
+    if existing_report:
+        raise HTTPException(status_code=400, detail="You have already reported this comment")
+    
+    # Create the report
+    report = {
+        "comment_id": comment_id,
+        "post_id": comment.get("post_id"),
+        "reported_user_id": comment["user_id"],
+        "reporter_id": user_id,
+        "reason": report_data.reason,
+        "comment_text": comment.get("text", "")[:500],  # Store snippet for moderation
+        "status": "pending",
+        "created_at": datetime.utcnow()
+    }
+    
+    await db.comment_reports.insert_one(report)
+    
+    # Update comment report count
+    await db.post_comments.update_one(
+        {"_id": ObjectId(comment_id)},
+        {"$inc": {"report_count": 1}}
+    )
+    
+    # Auto-hide comment if 3+ reports
+    comment_report_count = await db.comment_reports.count_documents({"comment_id": comment_id})
+    if comment_report_count >= 3:
+        await db.post_comments.update_one(
+            {"_id": ObjectId(comment_id)},
+            {"$set": {"is_hidden": True, "hidden_reason": "multiple_reports"}}
+        )
+    
+    return {
+        "message": "Report submitted successfully",
+        "report_count": comment_report_count
+    }
 
 # ==================== SHARING ====================
 

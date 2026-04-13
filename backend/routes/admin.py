@@ -275,6 +275,7 @@ async def get_moderation_stats(current_user: dict = Depends(get_current_user)):
     await check_admin(current_user)
     
     pending_reports = await db.reports.count_documents({"status": "pending"})
+    pending_comment_reports = await db.comment_reports.count_documents({"status": "pending"})
     flagged_users = await db.users.count_documents({"flagged": True})
     warned_users = await db.users.count_documents({"moderation_status": "warned"})
     restricted_users = await db.users.count_documents({"moderation_status": "restricted"})

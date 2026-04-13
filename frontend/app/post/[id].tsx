@@ -227,6 +227,48 @@ export default function PostDetailScreen() {
     );
   };
 
+  // Apple Guideline 1.2 UGC Compliance - Comment Reporting
+  const handleReportComment = (commentId: string, commentUserId: string) => {
+    // Cannot report own comment
+    if (commentUserId === user?.id) {
+      Alert.alert('Error', 'You cannot report your own comment');
+      return;
+    }
+    
+    Alert.alert(
+      'Report Comment',
+      'Why are you reporting this comment?',
+      [
+        {
+          text: 'Spam',
+          onPress: () => submitCommentReport(commentId, 'spam'),
+        },
+        {
+          text: 'Harassment',
+          onPress: () => submitCommentReport(commentId, 'harassment'),
+        },
+        {
+          text: 'Inappropriate',
+          onPress: () => submitCommentReport(commentId, 'inappropriate'),
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
+  const submitCommentReport = async (commentId: string, reason: string) => {
+    try {
+      await api.post(`/comments/${commentId}/report`, { reason });
+      Alert.alert(
+        'Report Submitted',
+        'Thank you for reporting. Our team will review this comment.'
+      );
+    } catch (error: any) {
+      const message = error.response?.data?.detail || 'Failed to submit report';
+      Alert.alert('Error', message);
+    }
+  };
+
   const handleShare = async () => {
     if (!post || sharing) return;
     
@@ -348,6 +390,15 @@ export default function PostDetailScreen() {
                 onPress={() => handleDeleteComment(item.id)}
               >
                 <Ionicons name="trash-outline" size={14} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            )}
+            {/* Report button - Apple Guideline 1.2 UGC Compliance */}
+            {item.user.id !== user?.id && (
+              <TouchableOpacity
+                style={styles.commentAction}
+                onPress={() => handleReportComment(item.id, item.user.id)}
+              >
+                <Ionicons name="flag-outline" size={14} color={Colors.textSecondary} />
               </TouchableOpacity>
             )}
           </View>

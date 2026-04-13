@@ -2,7 +2,12 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || '';
+// PRODUCTION LOCK: Backend URL must be explicitly set - no fallbacks allowed
+if (!process.env.EXPO_PUBLIC_BACKEND_URL) {
+  throw new Error('CRITICAL: Missing EXPO_PUBLIC_BACKEND_URL. Cannot run without production backend.');
+}
+
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
 // In-memory token cache for faster access and web compatibility
 let cachedToken: string | null = null;
