@@ -308,7 +308,13 @@ async def get_post(post_id: str, current_user: dict = Depends(get_current_user))
     """Get single post with full details"""
     current_user_id = str(current_user["_id"])
     
-    post = await db.posts.find_one({"_id": ObjectId(post_id)})
+    # Validate ObjectId format
+    try:
+        post_oid = ObjectId(post_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid post ID format")
+    
+    post = await db.posts.find_one({"_id": post_oid})
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
     
