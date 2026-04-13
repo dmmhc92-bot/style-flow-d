@@ -1,15 +1,11 @@
-// Legal document URLs - hosted on GitHub
-// StyleFlow App - DO NOT MIX WITH OTHER PROJECTS
-// Apple Guideline Compliant - Opens as formatted webpages
+// Legal document URLs - hosted on GitHub Pages
+// StyleFlow App - Apple Guideline Compliant
+// These open in external browser as properly formatted HTML webpages
 
-const GITHUB_USERNAME = 'dmmhc92-bot';
-const GITHUB_REPO = 'style-flow-d';
-const GITHUB_BRANCH = 'main';
-
-// GitHub blob URLs - These open as FORMATTED WEBPAGES (Apple Compliant)
+// GitHub Pages URLs - LIVE formatted HTML pages
 export const LEGAL_URLS = {
-  PRIVACY_POLICY: `https://github.com/${GITHUB_USERNAME}/${GITHUB_REPO}/blob/${GITHUB_BRANCH}/privacy-policy.md`,
-  TERMS_OF_SERVICE: `https://github.com/${GITHUB_USERNAME}/${GITHUB_REPO}/blob/${GITHUB_BRANCH}/terms-of-service.md`,
+  PRIVACY_POLICY: 'https://dmmhc92-bot.github.io/style-flow-d/privacy-policy.html',
+  TERMS_OF_SERVICE: 'https://dmmhc92-bot.github.io/style-flow-d/terms-of-service.html',
 };
 
 // Support email for legal inquiries

@@ -120,11 +120,11 @@ export default function SubscriptionScreen() {
   };
 
   const openTerms = () => {
-    Linking.openURL('https://github.com/dmmhc92-bot/style-flow-d/blob/main/terms-of-service.md');
+    Linking.openURL('https://dmmhc92-bot.github.io/style-flow-d/terms-of-service.html');
   };
 
   const openPrivacy = () => {
-    Linking.openURL('https://github.com/dmmhc92-bot/style-flow-d/blob/main/privacy-policy.md');
+    Linking.openURL('https://dmmhc92-bot.github.io/style-flow-d/privacy-policy.html');
   };
 
   const openManageSubscription = () => {
